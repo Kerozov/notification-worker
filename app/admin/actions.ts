@@ -1,27 +1,23 @@
 "use server";
 
-import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { getAdminCookieName } from "@/lib/auth/admin";
+import { hasAdminSession } from "@/lib/auth/admin";
 import { processPendingJobs, recordCronRun } from "@/lib/jobs/process";
 
-async function isAdminAuthorized(): Promise<boolean> {
-  const adminSecret = process.env.ADMIN_SECRET;
-
-  if (!adminSecret) {
-    return false;
-  }
-
-  const cookieStore = await cookies();
-  return cookieStore.get(getAdminCookieName())?.value === adminSecret;
-}
-
 export async function runCronNow(): Promise<void> {
-  if (!(await isAdminAuthorized())) {
-    throw new Error("Unauthorized");
+  if (!(await hasAdminSession())) {
+    redirect("/admin?error=unauthorized");
   }
 
-  await processPendingJobs(20);
-  await recordCronRun();
-  revalidatePath("/admin");
+  try {
+    const result = await processPendingJobs(20);
+    await recordCronRun();
+    revalidatePath("/admin");
+    redirect(`/admin?cronProcessed=${result.processed}`);
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Cron processing failed";
+    redirect(`/admin?error=${encodeURIComponent(message)}`);
+  }
 }

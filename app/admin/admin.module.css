@@ -89,6 +89,26 @@
   margin: 0;
 }
 
+.errorBanner {
+  margin-bottom: 1.25rem;
+  padding: 0.95rem 1.1rem;
+  border-radius: 14px;
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  background: rgba(254, 226, 226, 0.9);
+  color: #991b1b;
+  font-size: 0.88rem;
+}
+
+.successBanner {
+  margin-bottom: 1.25rem;
+  padding: 0.95rem 1.1rem;
+  border-radius: 14px;
+  border: 1px solid rgba(34, 197, 94, 0.35);
+  background: rgba(220, 252, 231, 0.9);
+  color: #166534;
+  font-size: 0.88rem;
+}
+
 .statsGrid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
@@ -394,5 +414,17 @@
 
   .runCronButton:hover {
     background: #1d4ed8;
+  }
+
+  .errorBanner {
+    background: rgba(127, 29, 29, 0.45);
+    border-color: rgba(248, 113, 113, 0.35);
+    color: #fecaca;
+  }
+
+  .successBanner {
+    background: rgba(20, 83, 45, 0.45);
+    border-color: rgba(74, 222, 128, 0.35);
+    color: #bbf7d0;
   }
 }

@@ -1,6 +1,6 @@
-import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 import { getSupabaseAdmin } from "@/lib/db/supabase";
-import { getAdminCookieName } from "@/lib/auth/admin";
+import { hasAdminSession } from "@/lib/auth/admin";
 import { runCronNow } from "./actions";
 import styles from "./admin.module.css";
 import {
@@ -12,7 +12,7 @@ import {
   StatusBadge,
 } from "./components";
 
-type SearchParams = Promise<{ secret?: string }>;
+type SearchParams = Promise<{ secret?: string; error?: string; cronProcessed?: string }>;
 
 type TenantRow = {
   id: string;
@@ -49,11 +49,12 @@ async function authorizeAdmin(searchParams: SearchParams): Promise<boolean> {
   const params = await searchParams;
 
   if (params.secret === adminSecret) {
-    return true;
+    redirect(
+      `/api/admin/login?secret=${encodeURIComponent(params.secret)}`,
+    );
   }
 
-  const cookieStore = await cookies();
-  return cookieStore.get(getAdminCookieName())?.value === adminSecret;
+  return hasAdminSession();
 }
 
 function countByStatus(jobs: JobRow[], status: string): number {
@@ -162,6 +163,11 @@ export default async function AdminPage({
   searchParams: SearchParams;
 }) {
   const authorized = await authorizeAdmin(searchParams);
+  const params = await searchParams;
+  const flashError = params.error ? decodeURIComponent(params.error) : null;
+  const cronProcessed = params.cronProcessed
+    ? Number(params.cronProcessed)
+    : null;
 
   if (!authorized) {
     return (
@@ -172,10 +178,7 @@ export default async function AdminPage({
             Unauthorized. Use one of the options below to sign in.
           </p>
           <p>
-            <code>/admin?secret=YOUR_ADMIN_SECRET</code>
-          </p>
-          <p>
-            <code>/api/admin/login?secret=YOUR_ADMIN_SECRET</code>
+            Use <code>/api/admin/login?secret=YOUR_ADMIN_SECRET</code> to sign in.
           </p>
         </div>
       </main>
@@ -271,6 +274,16 @@ export default async function AdminPage({
             For scheduled jobs before Pro, use <strong>Run cron now</strong> or an external scheduler.
           </div>
         </section>
+
+        {flashError ? (
+          <section className={styles.errorBanner}>{flashError}</section>
+        ) : null}
+
+        {cronProcessed !== null && !Number.isNaN(cronProcessed) ? (
+          <section className={styles.successBanner}>
+            Cron finished. Processed {cronProcessed} job(s).
+          </section>
+        ) : null}
 
         <section className={styles.statsGrid}>
           <StatCard
