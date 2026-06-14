@@ -7,7 +7,7 @@ import {
   checkTenantJobRateLimit,
   rateLimitResponse,
 } from "@/lib/rate-limit/tenant";
-import { createEmailJob } from "@/lib/jobs/process";
+import { createEmailJob, resolveJobFrom } from "@/lib/jobs/process";
 import { scheduleJobBodySchema } from "@/lib/validation/email-job";
 
 export async function POST(request: NextRequest) {
@@ -47,11 +47,24 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    const from = resolveJobFrom(parsed.data.from, tenant);
+
+    if (!from) {
+      return Response.json(
+        {
+          error:
+            "from is required. Pass it in the request body or set tenant default_from.",
+        },
+        { status: 400 },
+      );
+    }
+
     const job = await createEmailJob({
       tenantId: tenant.id,
       subject: parsed.data.subject,
       html: parsed.data.html,
       recipients: parsed.data.recipients,
+      from,
       replyTo: parsed.data.replyTo,
       sendAt,
       idempotencyKey: parsed.data.idempotencyKey,

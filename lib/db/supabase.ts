@@ -5,6 +5,7 @@ export type Tenant = {
   slug: string;
   name: string;
   api_key_hash: string;
+  default_from: string | null;
   default_reply_to: string | null;
   created_at: string;
 };
@@ -25,6 +26,7 @@ export type EmailJob = {
   subject: string;
   html: string;
   recipients: string[];
+  from_email: string | null;
   reply_to: string | null;
   sent_count: number;
   failed_count: number;

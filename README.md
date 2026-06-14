@@ -50,13 +50,38 @@ Authorization: Bearer <tenant-api-key>
 Content-Type: application/json
 ```
 
+Body fields:
+
+- `from` — sender address from the calling app, e.g. `hello@yourdomain.com` or `Brand Name <hello@yourdomain.com>`
+- If omitted, worker uses tenant `default_from` from the database (set via seed env)
+- `replyTo` — optional; falls back to tenant `default_reply_to`
+
+Resend still uses one worker `RESEND_API_KEY`, but each email can have a different verified `from` domain.
+
+### Add a new app (no worker code changes)
+
+1. Add env vars (local + Vercel):
+
+```env
+TENANT_CLIENT_B_KEY=cb_xxxxxxxx
+TENANT_CLIENT_B_NAME=Client B
+TENANT_CLIENT_B_FROM=Client B <mail@client-b.com>
+TENANT_CLIENT_B_REPLY_TO=hello@client-b.com
+```
+
+2. Run `bun run seed`
+3. Give `TENANT_CLIENT_B_KEY` value to the new app (FunnelBrand env, site env, etc.)
+4. The app sends `from` in each API call from its own settings — worker code stays unchanged
+
+Optional `TENANT_*_FROM` is only a fallback when the app omits `from` in the request.
+
 ### Send immediately
 
 ```bash
 curl -X POST https://YOUR_WORKER/api/v1/send \
   -H "Authorization: Bearer fb_xxx" \
   -H "Content-Type: application/json" \
-  -d '{"subject":"Test","html":"<p>Hi</p>","recipients":["you@example.com"]}'
+  -d '{"subject":"Test","html":"<p>Hi</p>","from":"FunnelBrand <hello@funnelbrand.com>","recipients":["you@example.com"]}'
 ```
 
 Response:
@@ -76,7 +101,7 @@ Response:
 curl -X POST https://YOUR_WORKER/api/v1/schedule \
   -H "Authorization: Bearer fb_xxx" \
   -H "Content-Type: application/json" \
-  -d '{"subject":"Reminder","html":"<p>Tomorrow</p>","recipients":["a@b.com"],"sendAt":"2026-06-15T09:00:00.000Z","idempotencyKey":"campaign-123"}'
+  -d '{"subject":"Reminder","html":"<p>Tomorrow</p>","from":"FunnelBrand <hello@funnelbrand.com>","recipients":["a@b.com"],"sendAt":"2026-06-15T09:00:00.000Z","idempotencyKey":"campaign-123"}'
 ```
 
 Response:

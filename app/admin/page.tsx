@@ -18,6 +18,7 @@ type TenantRow = {
   id: string;
   slug: string;
   name: string;
+  default_from: string | null;
   created_at: string;
 };
 
@@ -26,6 +27,7 @@ type JobRow = {
   tenant_id: string;
   status: string;
   subject: string;
+  from_email: string | null;
   recipients: string[];
   sent_count: number;
   failed_count: number;
@@ -70,6 +72,7 @@ function tenantJobStats(
 ): Array<{
   slug: string;
   name: string;
+  default_from: string | null;
   total: number;
   sent: number;
   failed: number;
@@ -81,6 +84,7 @@ function tenantJobStats(
     return {
       slug: tenant.slug,
       name: tenant.name,
+      default_from: tenant.default_from,
       total: tenantJobs.length,
       sent: tenantJobs.filter((job) => job.status === "sent").length,
       failed: tenantJobs.filter((job) => job.status === "failed").length,
@@ -109,6 +113,7 @@ function JobsTable({
           <tr>
             <th>Status</th>
             <th>Tenant</th>
+            <th>From</th>
             <th>Subject</th>
             <th>Recipients</th>
             <th>Sent / Failed</th>
@@ -124,6 +129,9 @@ function JobsTable({
                 <StatusBadge status={job.status} />
               </td>
               <td>{tenantIdToSlug.get(job.tenant_id) ?? shortId(job.tenant_id)}</td>
+              <td className={styles.truncate} title={job.from_email ?? undefined}>
+                {job.from_email ?? "—"}
+              </td>
               <td className={styles.truncate} title={job.subject}>
                 {job.subject}
               </td>
@@ -190,7 +198,7 @@ export default async function AdminPage({
       .select("value")
       .eq("key", "last_cron_run_at")
       .maybeSingle(),
-    supabase.from("tenants").select("id, slug, name, created_at").order("slug"),
+    supabase.from("tenants").select("id, slug, name, default_from, created_at").order("slug"),
     supabase
       .from("email_jobs")
       .select(
@@ -303,6 +311,11 @@ export default async function AdminPage({
                 <div key={tenant.slug} className={styles.tenantCard}>
                   <div className={styles.tenantSlug}>{tenant.slug}</div>
                   <div className={styles.tenantName}>{tenant.name}</div>
+                  <div className={styles.tenantStats}>
+                    <span className={styles.tenantStat}>
+                      from: {tenant.default_from ?? "—"}
+                    </span>
+                  </div>
                   <div className={styles.tenantStats}>
                     <span className={styles.tenantStat}>{tenant.total} jobs</span>
                     <span className={styles.tenantStat}>{tenant.sent} sent</span>

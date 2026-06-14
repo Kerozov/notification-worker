@@ -1,38 +1,61 @@
 #!/usr/bin/env bun
-import "dotenv/config";
+import { config } from "dotenv";
 import { hashApiKey } from "../lib/auth/tenant";
 import { getSupabaseAdmin } from "../lib/db/supabase";
+
+config({ path: ".env.local" });
 
 type SeedTenant = {
   slug: string;
   name: string;
-  envKey: string;
+  apiKey: string;
+  defaultFrom?: string;
   defaultReplyTo?: string;
 };
 
-const tenants: SeedTenant[] = [
-  {
-    slug: "funnelbrand",
-    name: "FunnelBrand",
-    envKey: "TENANT_KEY_FUNNELBRAND",
-  },
-  {
-    slug: "client-a",
-    name: "Client A",
-    envKey: "TENANT_KEY_CLIENT_A",
-  },
-];
+function envSuffixToSlug(suffix: string): string {
+  return suffix.toLowerCase().replace(/_/g, "-");
+}
 
-async function seedTenant(input: SeedTenant): Promise<void> {
-  const apiKey = process.env[input.envKey];
+function slugToName(slug: string): string {
+  return slug
+    .split("-")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
 
-  if (!apiKey) {
-    console.warn(`Skipping ${input.slug}: ${input.envKey} is not set`);
-    return;
+function discoverTenantsFromEnv(): SeedTenant[] {
+  const tenants: SeedTenant[] = [];
+
+  for (const [key, apiKey] of Object.entries(process.env)) {
+    const match = key.match(/^TENANT_(.+)_KEY$/);
+
+    if (!match || !apiKey?.trim()) {
+      continue;
+    }
+
+    const suffix = match[1];
+    const slug = envSuffixToSlug(suffix);
+    const name = process.env[`TENANT_${suffix}_NAME`]?.trim() || slugToName(slug);
+    const defaultFrom = process.env[`TENANT_${suffix}_FROM`]?.trim();
+    const defaultReplyTo = process.env[`TENANT_${suffix}_REPLY_TO`]?.trim();
+
+    tenants.push({
+      slug,
+      name,
+      apiKey: apiKey.trim(),
+      defaultFrom,
+      defaultReplyTo,
+    });
   }
 
+  return tenants.sort((a, b) => a.slug.localeCompare(b.slug));
+}
+
+async function seedTenant(input: SeedTenant): Promise<void> {
   const supabase = getSupabaseAdmin();
-  const apiKeyHash = hashApiKey(apiKey);
+  const apiKeyHash = hashApiKey(input.apiKey);
 
   const { data: existing, error: lookupError } = await supabase
     .from("tenants")
@@ -50,6 +73,7 @@ async function seedTenant(input: SeedTenant): Promise<void> {
       .update({
         name: input.name,
         api_key_hash: apiKeyHash,
+        default_from: input.defaultFrom ?? null,
         default_reply_to: input.defaultReplyTo ?? null,
       })
       .eq("id", existing.id);
@@ -66,6 +90,7 @@ async function seedTenant(input: SeedTenant): Promise<void> {
     slug: input.slug,
     name: input.name,
     api_key_hash: apiKeyHash,
+    default_from: input.defaultFrom ?? null,
     default_reply_to: input.defaultReplyTo ?? null,
   });
 
@@ -77,11 +102,20 @@ async function seedTenant(input: SeedTenant): Promise<void> {
 }
 
 async function main(): Promise<void> {
+  const tenants = discoverTenantsFromEnv();
+
+  if (tenants.length === 0) {
+    console.warn(
+      "No tenants found. Add env vars like TENANT_FUNNELBRAND_KEY=fb_xxx",
+    );
+    return;
+  }
+
   for (const tenant of tenants) {
     await seedTenant(tenant);
   }
 
-  console.log("Seed complete");
+  console.log(`Seed complete (${tenants.length} tenant(s))`);
 }
 
 main().catch((error) => {

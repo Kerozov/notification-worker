@@ -2,10 +2,23 @@ import { z } from "zod";
 
 const emailSchema = z.string().email();
 
+const FROM_ADDRESS_REGEX =
+  /^(?:[^<>]+<\s*[^\s@]+@[^\s@]+\.[^\s@]+\s*>|[^\s@]+@[^\s@]+\.[^\s@]+)$/;
+
+export const fromAddressSchema = z
+  .string()
+  .trim()
+  .min(3)
+  .max(320)
+  .refine((value) => FROM_ADDRESS_REGEX.test(value), {
+    message: "Invalid from address. Use email or Name <email@domain.com>",
+  });
+
 export const sendJobBodySchema = z.object({
   subject: z.string().min(1).max(998),
   html: z.string().min(1),
   recipients: z.array(z.string()).min(1).max(500),
+  from: fromAddressSchema.optional(),
   replyTo: z.string().email().optional(),
   idempotencyKey: z.string().min(1).max(255).optional(),
 });

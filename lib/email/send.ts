@@ -4,6 +4,7 @@ import { prepareHtml } from "@/lib/validation/email-job";
 const BATCH_SIZE = 50;
 
 export type SendBatchInput = {
+  from: string;
   subject: string;
   html: string;
   recipients: string[];
@@ -26,21 +27,10 @@ function getResendClient(): Resend {
   return new Resend(apiKey);
 }
 
-function getFromEmail(): string {
-  const from = process.env.RESEND_FROM_EMAIL;
-
-  if (!from) {
-    throw new Error("RESEND_FROM_EMAIL is required");
-  }
-
-  return from;
-}
-
 export async function sendEmailBatch(
   input: SendBatchInput,
 ): Promise<SendBatchResult> {
   const resend = getResendClient();
-  const from = getFromEmail();
   const html = prepareHtml(input.html);
   const errors: string[] = [];
   let sent = 0;
@@ -50,7 +40,7 @@ export async function sendEmailBatch(
     const chunk = input.recipients.slice(i, i + BATCH_SIZE);
 
     const payload = chunk.map((to) => ({
-      from,
+      from: input.from,
       to,
       subject: input.subject,
       html,

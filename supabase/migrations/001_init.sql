@@ -7,6 +7,7 @@ CREATE TABLE tenants (
   slug text NOT NULL UNIQUE,
   name text NOT NULL,
   api_key_hash text NOT NULL UNIQUE,
+  default_from text,
   default_reply_to text,
   created_at timestamptz NOT NULL DEFAULT now()
 );
@@ -21,6 +22,7 @@ CREATE TABLE email_jobs (
   subject text NOT NULL,
   html text NOT NULL,
   recipients jsonb NOT NULL DEFAULT '[]'::jsonb,
+  from_email text,
   reply_to text,
   sent_count int NOT NULL DEFAULT 0,
   failed_count int NOT NULL DEFAULT 0,

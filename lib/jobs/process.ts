@@ -21,6 +21,7 @@ export type CreateJobInput = {
   subject: string;
   html: string;
   recipients: string[];
+  from?: string | null;
   replyTo?: string | null;
   sendAt: Date;
   idempotencyKey?: string | null;
@@ -71,6 +72,7 @@ export async function createEmailJob(
       subject: input.subject,
       html: input.html,
       recipients: valid,
+      from_email: input.from ?? null,
       reply_to: input.replyTo ?? null,
     })
     .select("*")
@@ -159,9 +161,33 @@ export async function processClaimedJob(
   }
 
   const replyTo = job.reply_to || tenant.default_reply_to;
+  const from = job.from_email || tenant.default_from;
+
+  if (!from) {
+    const errorMessage =
+      "From address is missing. Pass `from` in the request or set tenant default_from.";
+
+    await supabase
+      .from("email_jobs")
+      .update({
+        status: "failed",
+        error: errorMessage,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", job.id);
+
+    return {
+      jobId: job.id,
+      status: "failed",
+      sent: 0,
+      failed: job.recipients.length,
+      errors: [errorMessage],
+    };
+  }
 
   try {
     const result = await sendEmailBatch({
+      from,
       subject: job.subject,
       html: job.html,
       recipients: job.recipients,
@@ -309,4 +335,11 @@ export function toJobResponse(job: EmailJob) {
     failed: job.failed_count,
     ...(job.error ? { errors: [job.error] } : {}),
   };
+}
+
+export function resolveJobFrom(
+  from: string | undefined | null,
+  tenant: Tenant,
+): string | null {
+  return from ?? tenant.default_from ?? null;
 }
