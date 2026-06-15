@@ -8,8 +8,17 @@
 }
 
 .shell {
-  max-width: 1200px;
+  max-width: 1400px;
   margin: 0 auto;
+}
+
+.kicker {
+  margin: 0 0 0.25rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: #64748b;
 }
 
 .header {
@@ -109,9 +118,177 @@
   font-size: 0.88rem;
 }
 
+.channelNav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.channelTab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.55rem 1rem;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: rgba(255, 255, 255, 0.75);
+  color: #475569;
+  font-size: 0.88rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
+}
+
+.channelTab:hover {
+  border-color: rgba(59, 130, 246, 0.45);
+  color: #1e40af;
+}
+
+.channelTabActive {
+  background: #0f172a;
+  border-color: #0f172a;
+  color: #f8fafc;
+}
+
+.channelTabActive:hover {
+  background: #1e293b;
+  border-color: #1e293b;
+  color: #f8fafc;
+}
+
+.channelTabCount {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.35rem;
+  height: 1.35rem;
+  padding: 0 0.35rem;
+  border-radius: 999px;
+  background: rgba(239, 68, 68, 0.15);
+  color: #b91c1c;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.channelTabActive .channelTabCount {
+  background: rgba(255, 255, 255, 0.18);
+  color: #fecaca;
+}
+
+.channelOverview {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+}
+
+.channelPanel {
+  border-radius: 18px;
+  padding: 1.15rem 1.2rem;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.04);
+}
+
+.channelPanelEmail {
+  border-top: 3px solid #3b82f6;
+}
+
+.channelPanelSms {
+  border-top: 3px solid #10b981;
+}
+
+.channelPanelHead {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.channelIcon {
+  display: grid;
+  place-items: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 12px;
+  background: #f1f5f9;
+  font-size: 1.1rem;
+}
+
+.channelPanelTitle {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.channelPanelHint {
+  margin: 0.15rem 0 0;
+  font-size: 0.82rem;
+  color: #64748b;
+}
+
+.channelMetrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.channelMetric {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.channelMetricValue {
+  font-size: 1.45rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.channelMetricLabel {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #64748b;
+}
+
+.metricBad {
+  color: #b91c1c;
+}
+
+.channelPanelLink {
+  display: inline-block;
+  margin-top: 0.95rem;
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: #2563eb;
+  text-decoration: none;
+}
+
+.channelPanelLink:hover {
+  text-decoration: underline;
+}
+
+.splitGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.splitGrid .section {
+  margin-bottom: 0;
+}
+
+.splitGrid + .splitGrid,
+.splitGrid + .section,
+.section + .splitGrid {
+  margin-top: 1.25rem;
+}
+
 .statsGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 1rem;
   margin-bottom: 1.5rem;
 }
@@ -151,6 +328,29 @@
   padding: 1.25rem;
   margin-bottom: 1.25rem;
   box-shadow: 0 10px 30px rgba(15, 23, 42, 0.04);
+}
+
+.sectionEmail {
+  border-left: 3px solid #3b82f6;
+}
+
+.sectionSms {
+  border-left: 3px solid #10b981;
+}
+
+.sectionBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.4rem;
+  margin-left: 0.45rem;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  background: #f1f5f9;
+  color: #475569;
+  font-size: 0.72rem;
+  font-weight: 700;
+  vertical-align: middle;
 }
 
 .sectionHeader {
@@ -214,6 +414,32 @@
   white-space: nowrap;
 }
 
+.truncateWide {
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tenantCell {
+  font-weight: 600;
+  color: #334155;
+  white-space: nowrap;
+}
+
+.metricCell {
+  font-size: 0.8rem;
+  color: #475569;
+  line-height: 1.45;
+  white-space: nowrap;
+}
+
+.timeCell {
+  font-size: 0.8rem;
+  color: #64748b;
+  white-space: nowrap;
+}
+
 .badge {
   display: inline-flex;
   align-items: center;
@@ -272,6 +498,62 @@
   border-radius: 14px;
   padding: 0.95rem 1rem;
   background: #f8fafc;
+}
+
+.tenantCardHead {
+  margin-bottom: 0.75rem;
+}
+
+.tenantChannels {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  margin-bottom: 0.75rem;
+}
+
+.tenantChannelRow {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.tenantChannelLabel {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #64748b;
+}
+
+.tenantChannelValue {
+  font-size: 0.84rem;
+  color: #334155;
+  word-break: break-word;
+}
+
+.configOk {
+  color: #15803d;
+  font-weight: 600;
+}
+
+.configMissing {
+  color: #b45309;
+  font-weight: 600;
+}
+
+.footerNote {
+  margin-top: 0.5rem;
+  padding: 0.85rem 1rem;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.6);
+  border: 1px dashed rgba(148, 163, 184, 0.45);
+  color: #64748b;
+  font-size: 0.82rem;
+}
+
+.footerNote code {
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 0.78rem;
 }
 
 .tenantSlug {
@@ -443,6 +725,17 @@
   font-size: 0.82rem;
 }
 
+@media (max-width: 960px) {
+  .channelOverview,
+  .splitGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .channelMetrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 @media (max-width: 720px) {
   .header {
     flex-direction: column;
@@ -470,6 +763,7 @@
     color: #e5eefb;
   }
 
+  .kicker,
   .subtitle,
   .sectionHint,
   .statHint,
@@ -478,22 +772,57 @@
   .empty,
   .tenantName,
   .recipients,
-  .tenantStat {
+  .tenantStat,
+  .channelPanelHint,
+  .channelMetricLabel,
+  .tenantChannelLabel,
+  .footerNote {
     color: #94a3b8;
   }
 
   .headerMeta strong,
   .statValue,
   .sectionTitle,
-  .tenantSlug {
+  .tenantSlug,
+  .channelPanelTitle,
+  .channelMetricValue,
+  .tenantChannelValue,
+  .tenantCell {
     color: #f8fafc;
   }
 
   .statCard,
   .section,
+  .channelPanel,
   .unauthorizedCard {
     background: rgba(15, 23, 42, 0.82);
     border-color: rgba(148, 163, 184, 0.18);
+  }
+
+  .channelTab {
+    background: rgba(15, 23, 42, 0.55);
+    border-color: rgba(148, 163, 184, 0.22);
+    color: #cbd5e1;
+  }
+
+  .channelTabActive {
+    background: #2563eb;
+    border-color: #2563eb;
+    color: #f8fafc;
+  }
+
+  .channelIcon {
+    background: rgba(30, 41, 59, 0.85);
+  }
+
+  .sectionBadge {
+    background: rgba(30, 41, 59, 0.85);
+    color: #cbd5e1;
+  }
+
+  .footerNote {
+    background: rgba(15, 23, 42, 0.45);
+    border-color: rgba(148, 163, 184, 0.22);
   }
 
   .table td {
