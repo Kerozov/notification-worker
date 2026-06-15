@@ -281,7 +281,7 @@ export default async function AdminPage({
 
         <section className={styles.planBanner}>
           <div className={styles.planBannerText}>
-            <strong>Scheduler:</strong> Trigger.dev polls the queue every second in production.
+            <strong>Scheduler:</strong> Trigger.dev polls the queue every minute in production.
             Immediate sends via <code>/api/v1/send</code> do not need the scheduler.
             Use <strong>Process queue now</strong> for a manual drain.
           </div>
