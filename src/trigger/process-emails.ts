@@ -1,6 +1,4 @@
-import { schedules, task, tasks } from "@trigger.dev/sdk/v3";
-
-const TASK_ID = "process-emails";
+import { schedules } from "@trigger.dev/sdk/v3";
 
 async function invokeWorkerCron() {
   const workerUrl = process.env.WORKER_URL;
@@ -29,39 +27,15 @@ async function invokeWorkerCron() {
 }
 
 /**
- * Drains the worker queue every second via a self-rescheduling chain.
- * Only one run executes at a time (concurrencyLimit: 1).
+ * Polls the worker queue every minute.
  *
  * Required Trigger.dev environment variables:
  *   - WORKER_URL
  *   - CRON_SECRET  (same as the worker's CRON_SECRET)
  */
-export const processEmails = task({
-  id: TASK_ID,
-  queue: {
-    concurrencyLimit: 1,
-  },
-  maxDuration: 60,
-  run: async () => {
-    const result = await invokeWorkerCron();
-
-    await tasks.trigger(TASK_ID, {}, { delay: "1s" });
-
-    return result;
-  },
-});
-
-/**
- * Hourly safety net — restarts the poller if the chain stopped.
- */
-export const processEmailsKickoff = schedules.task({
-  id: "process-emails-kickoff",
-  cron: "0 * * * *",
-  maxDuration: 30,
-  run: async () => {
-    await tasks.trigger(TASK_ID, {}, {
-      idempotencyKey: "process-emails-poller",
-      idempotencyKeyTTL: "55m",
-    });
-  },
+export const processEmails = schedules.task({
+  id: "process-emails",
+  cron: "* * * * *",
+  maxDuration: 120,
+  run: async () => invokeWorkerCron(),
 });

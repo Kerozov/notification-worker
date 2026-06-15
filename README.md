@@ -2,7 +2,7 @@
 
 Minimal multi-tenant dispatch service for queued email sending via **ZeptoMail**.
 Each tenant site enqueues jobs through a Bearer API key; the worker stores `send_at`
-in the database and **Trigger.dev** drains the queue every second.
+in the database and **Trigger.dev** drains the queue every minute.
 
 ## Architecture
 
@@ -14,7 +14,7 @@ FunnelBrand / client sites
 Email Worker (Next.js on Vercel Free)
     │  writes email_jobs (pending) in Supabase
     ▼
-Trigger.dev  ──every 1s──────▶ GET /api/cron/process (Bearer CRON_SECRET)
+Trigger.dev  ──every 1 min──▶ GET /api/cron/process (Bearer CRON_SECRET)
     ▼
 Worker claims due jobs ──▶ ZeptoMail batch API (track_opens=true)
     ▼
@@ -22,7 +22,7 @@ ZeptoMail webhook ──▶ POST /api/webhooks/zeptomail ──▶ email_deliver
 ```
 
 - **send_at** lives in the worker DB (source of truth, supports cancel + idempotency)
-- **Trigger.dev** polls `/api/cron/process` every second (production scheduler)
+- **Trigger.dev** polls `/api/cron/process` every minute (production scheduler)
 - **ZeptoMail** only sends + reports opens via webhook (no native scheduling)
 
 ## Stack
@@ -183,7 +183,7 @@ Or use **Process queue now** in `/admin` (uses `ADMIN_SECRET`, no `CRON_SECRET` 
 
 ## Scheduling: Trigger.dev
 
-`src/trigger/process-emails.ts` polls `/api/cron/process` every second.
+`src/trigger/process-emails.ts` polls `/api/cron/process` every minute.
 Deploy to Trigger.dev (project `proj_txagoerfovcysbewkqzq`) with:
 
 - `WORKER_URL` — e.g. `https://notification-worker-phi.vercel.app`
