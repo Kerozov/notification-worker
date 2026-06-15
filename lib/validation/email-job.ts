@@ -31,7 +31,7 @@ export type SendJobBody = z.infer<typeof sendJobBodySchema>;
 export type ScheduleJobBody = z.infer<typeof scheduleJobBodySchema>;
 
 const EMAIL_REGEX =
-  /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
 export function normalizeRecipients(recipients: string[]): {
   valid: string[];
@@ -42,14 +42,21 @@ export function normalizeRecipients(recipients: string[]): {
   const invalid: string[] = [];
 
   for (const raw of recipients) {
-    const email = raw.trim().toLowerCase();
+    const trimmed = raw.trim();
 
-    if (!email) {
+    if (!trimmed) {
       continue;
     }
 
-    if (!EMAIL_REGEX.test(email) || !emailSchema.safeParse(email).success) {
-      invalid.push(raw);
+    const email = trimmed.toLowerCase();
+
+    if (
+      !EMAIL_REGEX.test(email) ||
+      !emailSchema.safeParse(email).success ||
+      email.endsWith(".") ||
+      email.includes("..")
+    ) {
+      invalid.push(trimmed);
       continue;
     }
 

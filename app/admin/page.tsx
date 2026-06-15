@@ -3,6 +3,11 @@ import { redirect } from "next/navigation";
 import { getSupabaseAdmin } from "@/lib/db/supabase";
 import { hasAdminSession } from "@/lib/auth/admin";
 import { getOpenStatsByJobIds } from "@/lib/deliveries/store";
+import {
+  getDeliveryStatsByJobIds,
+  getJobDisplayCounts,
+  resolveDisplayStatus,
+} from "@/lib/deliveries/stats";
 import { runCronNow } from "./actions";
 import styles from "./admin.module.css";
 import {
@@ -100,11 +105,23 @@ function JobsTable({
   jobs,
   tenantIdToSlug,
   openStats,
+  deliveryStats,
   emptyMessage,
 }: {
   jobs: JobRow[];
   tenantIdToSlug: Map<string, string>;
   openStats: Map<string, { opened: number; notOpened: number; total: number }>;
+  deliveryStats: Map<
+    string,
+    {
+      sent: number;
+      invalid: number;
+      failed: number;
+      opened: number;
+      notOpened: number;
+      total: number;
+    }
+  >;
   emptyMessage: string;
 }) {
   if (jobs.length === 0) {
@@ -121,7 +138,10 @@ function JobsTable({
             <th>From</th>
             <th>Subject</th>
             <th>Recipients</th>
-            <th>Sent / Failed / Invalid</th>
+            <th>Requested</th>
+            <th>Sent</th>
+            <th>Invalid</th>
+            <th>Failed</th>
             <th>Opens</th>
             <th>Send at</th>
             <th>Updated</th>
@@ -129,10 +149,15 @@ function JobsTable({
           </tr>
         </thead>
         <tbody>
-          {jobs.map((job) => (
+          {jobs.map((job) => {
+            const stats = deliveryStats.get(job.id);
+            const counts = getJobDisplayCounts(job, stats);
+            const displayStatus = resolveDisplayStatus(job, stats);
+
+            return (
             <tr key={job.id}>
               <td>
-                <StatusBadge status={job.status} />
+                <StatusBadge status={displayStatus} />
               </td>
               <td>{tenantIdToSlug.get(job.tenant_id) ?? shortId(job.tenant_id)}</td>
               <td className={styles.truncate} title={job.from_email ?? undefined}>
@@ -144,14 +169,13 @@ function JobsTable({
               <td className={styles.recipients}>
                 {formatRecipients(job.recipients)}
               </td>
-              <td>
-                {job.sent_count} / {job.failed_count}
-                {job.error?.includes("Invalid addresses") ? (
-                  <span className={styles.invalidHint} title={job.error}>
-                    {" "}
-                    · invalid
-                  </span>
-                ) : null}
+              <td>{counts.requested}</td>
+              <td>{counts.sent}</td>
+              <td className={counts.invalid > 0 ? styles.invalidCount : undefined}>
+                {counts.invalid}
+              </td>
+              <td className={counts.failed > 0 ? styles.failedCount : undefined}>
+                {counts.failed}
               </td>
               <td>
                 {openStats.get(job.id)
@@ -168,7 +192,8 @@ function JobsTable({
                 </Link>
               </td>
             </tr>
-          ))}
+            );
+          })}
         </tbody>
       </table>
     </div>
@@ -260,9 +285,16 @@ export default async function AdminPage({
   const tenantIdToSlug = new Map(tenants.map((tenant) => [tenant.id, tenant.slug]));
   const lastCronRun = (metaResult.data as { value: string } | null)?.value;
   const tenantStats = tenantJobStats(jobs24h, tenants);
-  const openStats = await getOpenStatsByJobIds(
-    [...recentJobs, ...pendingQueue].map((job) => job.id),
-  );
+  const allTableJobIds = [
+    ...new Set([
+      ...recentJobs.map((job) => job.id),
+      ...pendingQueue.map((job) => job.id),
+    ]),
+  ];
+  const [openStats, deliveryStats] = await Promise.all([
+    getOpenStatsByJobIds(allTableJobIds),
+    getDeliveryStatsByJobIds(allTableJobIds),
+  ]);
 
   return (
     <main className={styles.adminPage}>
@@ -373,6 +405,7 @@ export default async function AdminPage({
             jobs={pendingQueue}
             tenantIdToSlug={tenantIdToSlug}
             openStats={openStats}
+            deliveryStats={deliveryStats}
             emptyMessage="No pending jobs in the queue."
           />
         </section>
@@ -388,6 +421,7 @@ export default async function AdminPage({
             jobs={recentJobs}
             tenantIdToSlug={tenantIdToSlug}
             openStats={openStats}
+            deliveryStats={deliveryStats}
             emptyMessage="No jobs yet."
           />
         </section>

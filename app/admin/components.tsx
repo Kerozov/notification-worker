@@ -4,6 +4,7 @@ const STATUS_CLASS: Record<string, string> = {
   pending: styles.badgePending,
   processing: styles.badgeProcessing,
   sent: styles.badgeSent,
+  partial: styles.badgePartial,
   failed: styles.badgeFailed,
   canceled: styles.badgeCanceled,
 };

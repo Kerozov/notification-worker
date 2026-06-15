@@ -1,4 +1,10 @@
 import { getSupabaseAdmin } from "@/lib/db/supabase";
+import {
+  INVALID_EMAIL_ERROR,
+  isInvalidDeliveryError,
+} from "@/lib/deliveries/stats";
+
+export { INVALID_EMAIL_ERROR } from "@/lib/deliveries/stats";
 
 export type DeliveryStatus =
   | "pending"
@@ -52,7 +58,7 @@ export async function recordInvalidRecipients(
     tenantId,
     invalid.map((recipient) => ({
       recipient,
-      error: "Invalid email address (not sent)",
+      error: INVALID_EMAIL_ERROR,
     })),
   );
 }
@@ -179,15 +185,13 @@ export async function getDeliveriesForJob(
 
 export function summarizeDeliveries(deliveries: EmailDelivery[]) {
   const opened = deliveries.filter((d) => d.opened_at !== null).length;
-  const invalid = deliveries.filter(
-    (d) =>
-      d.status === "failed" &&
-      d.error?.includes("Invalid email address (not sent)"),
+  const invalid = deliveries.filter((d) =>
+    isInvalidDeliveryError(d.error),
   ).length;
   const failed = deliveries.filter(
     (d) =>
       (d.status === "failed" || d.status === "bounced") &&
-      !d.error?.includes("Invalid email address (not sent)"),
+      !isInvalidDeliveryError(d.error),
   ).length;
   const sent = deliveries.filter(
     (d) =>

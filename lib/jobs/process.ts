@@ -7,11 +7,12 @@ import {
 } from "@/lib/db/supabase";
 import { sendEmailBatch } from "@/lib/email/send";
 import { recordDeliveryResults, recordInvalidRecipients } from "@/lib/deliveries/store";
+import { resolveDisplayStatus } from "@/lib/deliveries/stats";
 import { normalizeRecipients } from "@/lib/validation/email-job";
 
 export type ProcessJobResult = {
   jobId: string;
-  status: EmailJob["status"];
+  status: EmailJob["status"] | "partial";
   sent: number;
   failed: number;
   errors?: string[];
@@ -96,16 +97,45 @@ export async function createEmailJob(
   input: CreateJobInput,
 ): Promise<CreateJobResult> {
   const { valid, invalid } = normalizeRecipients(input.recipients);
+  const supabase = getSupabaseAdmin();
 
   if (valid.length === 0) {
-    throw new Error(
-      invalid.length > 0
-        ? `No valid recipients. Invalid: ${invalid.join(", ")}`
-        : "At least one recipient is required",
-    );
-  }
+    const error = formatInvalidError(invalid);
 
-  const supabase = getSupabaseAdmin();
+    const { data, error: insertError } = await supabase
+      .from("email_jobs")
+      .insert({
+        tenant_id: input.tenantId,
+        idempotency_key: input.idempotencyKey ?? null,
+        status: "failed",
+        send_at: input.sendAt.toISOString(),
+        subject: input.subject,
+        html: input.html,
+        recipients: invalid,
+        from_email: input.from ?? null,
+        reply_to: input.replyTo ?? null,
+        sent_count: 0,
+        failed_count: invalid.length,
+        error,
+        updated_at: new Date().toISOString(),
+      })
+      .select("*")
+      .single();
+
+    if (insertError) {
+      throw new Error(insertError.message);
+    }
+
+    const job = asEmailJob(data);
+
+    try {
+      await recordInvalidRecipients(job.id, job.tenant_id, invalid);
+    } catch {
+      // Deliveries table may be missing; job row still shows failed + invalid list.
+    }
+
+    return { job, invalid };
+  }
 
   const { data, error } = await supabase
     .from("email_jobs")
@@ -268,20 +298,27 @@ export async function processClaimedJob(
 
     await recordDeliveryResults(job.id, job.tenant_id, result.deliveries);
 
-    const status = result.sent === 0 ? "failed" : "sent";
+    const priorInvalid =
+      job.failed_count > 0 && job.error?.includes("Invalid addresses")
+        ? job.failed_count
+        : 0;
+    const sendFailed = result.failed;
+    const totalFailed = priorInvalid + sendFailed;
+    const dbStatus = result.sent === 0 ? "failed" : "sent";
+    const status =
+      result.sent === 0 ? "failed" : totalFailed > 0 ? "partial" : "sent";
     const sendErrors =
       result.errors.length > 0 ? result.errors.join("; ") : null;
     const invalidNote =
-      job.failed_count > 0 && job.error?.includes("Invalid addresses")
+      priorInvalid > 0 && job.error?.includes("Invalid addresses")
         ? job.error
         : null;
     const errorMessage = [invalidNote, sendErrors].filter(Boolean).join(" | ") || null;
-    const totalFailed = job.failed_count + result.failed;
 
     await supabase
       .from("email_jobs")
       .update({
-        status,
+        status: dbStatus,
         sent_count: result.sent,
         failed_count: totalFailed,
         error: errorMessage,
@@ -408,9 +445,21 @@ export async function recordCronRun(): Promise<void> {
 }
 
 export function toJobResponse(job: EmailJob, invalid: string[] = []) {
+  const stats =
+    invalid.length > 0 && job.sent_count === 0
+      ? {
+          sent: 0,
+          invalid: invalid.length,
+          failed: 0,
+          opened: 0,
+          notOpened: 0,
+          total: invalid.length,
+        }
+      : undefined;
+
   return {
     jobId: job.id,
-    status: job.status,
+    status: resolveDisplayStatus(job, stats),
     sent: job.sent_count,
     failed: job.failed_count,
     invalid: invalid.length,

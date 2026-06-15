@@ -240,6 +240,11 @@
   color: #166534;
 }
 
+.badgePartial {
+  background: #ffedd5;
+  color: #c2410c;
+}
+
 .badgeFailed {
   background: #fee2e2;
   color: #991b1b;
@@ -299,6 +304,16 @@
 .invalidHint {
   color: #b45309;
   font-size: 0.78rem;
+}
+
+.invalidCount {
+  color: #b45309;
+  font-weight: 600;
+}
+
+.failedCount {
+  color: #b91c1c;
+  font-weight: 600;
 }
 
 .actionLink {

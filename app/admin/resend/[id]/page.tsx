@@ -3,6 +3,12 @@ import { redirect } from "next/navigation";
 import { getSupabaseAdmin } from "@/lib/db/supabase";
 import { hasAdminSession } from "@/lib/auth/admin";
 import { getDeliveriesForJob } from "@/lib/deliveries/store";
+import {
+  getDeliveryStatsByJobIds,
+  getJobDisplayCounts,
+  isInvalidDeliveryError,
+  resolveDisplayStatus,
+} from "@/lib/deliveries/stats";
 import { getJobById } from "@/lib/jobs/query";
 import {
   resendFromPaste,
@@ -56,8 +62,12 @@ export default async function ResendPage({
     .maybeSingle();
 
   const deliveries = await getDeliveriesForJob(job.id, job.tenant_id);
+  const deliveryStatsMap = await getDeliveryStatsByJobIds([job.id]);
+  const stats = deliveryStatsMap.get(job.id);
+  const counts = getJobDisplayCounts(job, stats);
+  const displayStatus = resolveDisplayStatus(job, stats);
   const invalidDeliveries = deliveries.filter((d) =>
-    d.error?.includes("Invalid email address (not sent)"),
+    isInvalidDeliveryError(d.error),
   );
 
   const flashError = query.error ? decodeURIComponent(query.error) : null;
@@ -101,7 +111,7 @@ export default async function ResendPage({
             </div>
             <div>
               <strong>Status</strong>
-              <StatusBadge status={job.status} />
+              <StatusBadge status={displayStatus} />
             </div>
             <div>
               <strong>Subject</strong>
@@ -112,13 +122,14 @@ export default async function ResendPage({
               <span>{job.from_email ?? "—"}</span>
             </div>
             <div>
-              <strong>Original recipients</strong>
-              <span>{job.recipients.length}</span>
+              <strong>Requested</strong>
+              <span>{counts.requested}</span>
             </div>
             <div>
-              <strong>Sent / failed</strong>
+              <strong>Sent / invalid / failed</strong>
               <span>
-                {job.sent_count} sent · {job.failed_count} failed
+                {counts.sent} sent · {counts.invalid} invalid · {counts.failed}{" "}
+                failed
               </span>
             </div>
             <div>
