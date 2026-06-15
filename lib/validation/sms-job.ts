@@ -18,6 +18,51 @@ export const scheduleSmsBodySchema = sendSmsBodySchema.extend({
 export type SendSmsBody = z.infer<typeof sendSmsBodySchema>;
 export type ScheduleSmsBody = z.infer<typeof scheduleSmsBodySchema>;
 
+/** Convert common BG formats (0888…, 359…) to E.164 (+359…). */
+export function normalizePhoneToE164(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const compact = trimmed.replace(/[\s()-]/g, "");
+  if (E164_REGEX.test(compact)) {
+    return compact;
+  }
+
+  const digits = trimmed.replace(/\D/g, "");
+
+  if (digits.startsWith("359") && digits.length >= 11) {
+    const candidate = `+${digits}`;
+    if (E164_REGEX.test(candidate)) {
+      return candidate;
+    }
+  }
+
+  if (digits.startsWith("0") && digits.length === 10) {
+    const candidate = `+359${digits.slice(1)}`;
+    if (E164_REGEX.test(candidate)) {
+      return candidate;
+    }
+  }
+
+  if (digits.length === 9) {
+    const candidate = `+359${digits}`;
+    if (E164_REGEX.test(candidate)) {
+      return candidate;
+    }
+  }
+
+  if (digits.length >= 10) {
+    const candidate = `+${digits}`;
+    if (E164_REGEX.test(candidate)) {
+      return candidate;
+    }
+  }
+
+  return null;
+}
+
 export function normalizePhoneNumbers(recipients: string[]): {
   valid: string[];
   invalid: string[];
@@ -27,16 +72,12 @@ export function normalizePhoneNumbers(recipients: string[]): {
   const invalid: string[] = [];
 
   for (const raw of recipients) {
-    const trimmed = raw.trim();
+    const normalized = normalizePhoneToE164(raw);
 
-    if (!trimmed) {
-      continue;
-    }
-
-    const normalized = trimmed.replace(/[\s()-]/g, "");
-
-    if (!E164_REGEX.test(normalized)) {
-      invalid.push(trimmed);
+    if (!normalized) {
+      if (raw.trim()) {
+        invalid.push(raw.trim());
+      }
       continue;
     }
 

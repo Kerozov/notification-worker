@@ -2,6 +2,8 @@ import type { SmsDeliverySendResult } from "@/lib/sms/deliveries/store";
 
 const BATCH_SIZE = 100;
 const NOTIFIER_BULK_URL = "https://usenotifier.com/api/sms/bulk";
+const NOTIFIER_GHL_URL =
+  "https://notifierbg.com/api/integrations/callbacks/go-high-level";
 
 export type SendSmsBatchInput = {
   apiKey: string;
@@ -44,6 +46,15 @@ function getApiUrl(): string {
   return process.env.NOTIFIER_API_URL?.trim() || NOTIFIER_BULK_URL;
 }
 
+/** Notifier.bg GoHighLevel integration (used by funnel svetoslava). */
+export function isGhlNotifierUrl(url: string): boolean {
+  const lower = url.toLowerCase();
+  return (
+    lower.includes("go-high-level") ||
+    lower.includes("notifierbg.com/api/integrations")
+  );
+}
+
 function deliveryUuid(jobId: string, recipient: string): string {
   return `${jobId}:${recipient}`;
 }
@@ -58,6 +69,73 @@ export async function sendSmsBatch(
   }
 
   const url = getApiUrl();
+
+  if (isGhlNotifierUrl(url)) {
+    return sendGhlSmsBatch(input, url, apiKey);
+  }
+
+  return sendBulkSmsBatch(input, url, apiKey);
+}
+
+/** Per-recipient POST — same contract as funnel-master-svetoslava. */
+async function sendGhlSmsBatch(
+  input: SendSmsBatchInput,
+  url: string,
+  apiKey: string,
+): Promise<SendSmsBatchResult> {
+  const errors: string[] = [];
+  const deliveries: SmsDeliverySendResult[] = [];
+  let sent = 0;
+  let failed = 0;
+  const sendAt = new Date().toISOString();
+
+  for (const recipient of input.recipients) {
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          Authorization: apiKey,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          phone: recipient,
+          customData: {
+            content: input.body,
+            send_at: sendAt,
+          },
+        }),
+      });
+
+      if (!response.ok) {
+        const text = await response.text().catch(() => "");
+        const message =
+          text.trim() || `Notifier request failed with status ${response.status}`;
+        failed += 1;
+        errors.push(`${recipient}: ${message}`);
+        deliveries.push({ recipient, error: message });
+        continue;
+      }
+
+      sent += 1;
+      deliveries.push({ recipient });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Notifier request failed";
+      failed += 1;
+      errors.push(`${recipient}: ${message}`);
+      deliveries.push({ recipient, error: message });
+    }
+  }
+
+  return { sent, failed, errors, deliveries };
+}
+
+/** Bulk array POST — usenotifier.com API. */
+async function sendBulkSmsBatch(
+  input: SendSmsBatchInput,
+  url: string,
+  apiKey: string,
+): Promise<SendSmsBatchResult> {
   const errors: string[] = [];
   const deliveries: SmsDeliverySendResult[] = [];
   let sent = 0;
@@ -196,3 +274,5 @@ function extractNotifierError(payload: unknown, status: number): string {
 
   return `Notifier request failed with status ${status}`;
 }
+
+export { NOTIFIER_BULK_URL, NOTIFIER_GHL_URL };
