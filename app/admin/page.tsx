@@ -178,9 +178,13 @@ function JobsTable({
                 {counts.failed}
               </td>
               <td>
-                {openStats.get(job.id)
-                  ? `${openStats.get(job.id)!.opened} opened · ${openStats.get(job.id)!.notOpened} not`
-                  : "—"}
+                {(() => {
+                  const open = openStats.get(job.id);
+                  if (!open || open.total === 0) {
+                    return job.sent_count > 0 ? "0 opened (no delivery rows)" : "—";
+                  }
+                  return `${open.opened} opened · ${open.notOpened} not`;
+                })()}
               </td>
               <td>{formatDateTime(job.send_at)}</td>
               <td title={formatRelative(job.updated_at)}>

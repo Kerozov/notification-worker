@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { shouldIgnoreOpenEvent } from "@/lib/deliveries/open-filter";
+import { isBotOpenUserAgent } from "@/lib/deliveries/open-filter";
 import {
   markDeliveryBounced,
   markDeliveryDelivered,
@@ -71,7 +71,14 @@ function parseBody(raw: string): ZeptoWebhookPayload | null {
   }
 }
 
-function extractRecipients(message: ZeptoEventMessage): string[] {
+function extractRecipients(
+  message: ZeptoEventMessage,
+  detail?: ZeptoEventDetail,
+): string[] {
+  if (detail?.bounced_recipient) {
+    return [detail.bounced_recipient];
+  }
+
   const to = message.email_info?.to ?? [];
   const recipients: string[] = [];
 
@@ -90,7 +97,11 @@ function classifyEvent(
 ): "opened" | "bounced" | "delivered" | null {
   const name = eventName.toLowerCase();
 
-  if (name === "email_open" || name.endsWith("_open")) {
+  if (
+    name === "email_open" ||
+    name === "open" ||
+    (name.includes("open") && !name.includes("click"))
+  ) {
     return "opened";
   }
   if (name.includes("bounce")) {
@@ -127,49 +138,40 @@ export async function POST(request: NextRequest) {
   const kind = eventNames.map(classifyEvent).find(Boolean) ?? null;
 
   if (!kind) {
-    return Response.json({ ok: true, skipped: "unhandled event" });
+    return Response.json({ ok: true, skipped: "unhandled event", eventNames });
   }
 
   const messages = payload.event_message ?? [];
   const now = new Date().toISOString();
   let updated = 0;
   let skippedBots = 0;
-  let skippedPrefetch = 0;
   let notFound = 0;
+  let skippedNoJobId = 0;
+  let skippedNoRecipients = 0;
 
   try {
     for (const message of messages) {
       const jobId = message.email_info?.client_reference;
 
       if (!jobId) {
+        skippedNoJobId += 1;
         continue;
       }
 
       const detail = firstDetail(message);
       const eventTime =
         detail?.time ?? message.email_info?.processed_time ?? now;
-      const recipients = extractRecipients(message);
+      const recipients = extractRecipients(message, detail);
 
       if (recipients.length === 0) {
+        skippedNoRecipients += 1;
         continue;
       }
 
       for (const recipient of recipients) {
         if (kind === "opened") {
-          const ignoreReason = await shouldIgnoreOpenEvent(
-            jobId,
-            recipient,
-            eventTime,
-            detail?.user_agent,
-          );
-
-          if (ignoreReason === "bot") {
+          if (isBotOpenUserAgent(detail?.user_agent)) {
             skippedBots += 1;
-            continue;
-          }
-
-          if (ignoreReason === "prefetch") {
-            skippedPrefetch += 1;
             continue;
           }
 
@@ -198,9 +200,11 @@ export async function POST(request: NextRequest) {
   return Response.json({
     ok: true,
     kind,
+    eventNames,
     updated,
     skippedBots,
-    skippedPrefetch,
     notFound,
+    skippedNoJobId,
+    skippedNoRecipients,
   });
 }

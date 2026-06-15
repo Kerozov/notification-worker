@@ -103,6 +103,22 @@ export async function markDeliveryOpened(
   openedAt: string,
 ): Promise<boolean> {
   const supabase = getSupabaseAdmin();
+  const normalized = normalizeEmail(recipient);
+
+  const { data: existing } = await supabase
+    .from("email_deliveries")
+    .select("id, opened_at")
+    .eq("job_id", jobId)
+    .eq("recipient", normalized)
+    .maybeSingle();
+
+  if (existing?.opened_at) {
+    return true;
+  }
+
+  if (!existing) {
+    return false;
+  }
 
   const { data, error } = await supabase
     .from("email_deliveries")
@@ -111,8 +127,7 @@ export async function markDeliveryOpened(
       opened_at: openedAt,
       updated_at: new Date().toISOString(),
     })
-    .eq("job_id", jobId)
-    .eq("recipient", normalizeEmail(recipient))
+    .eq("id", existing.id)
     .is("opened_at", null)
     .select("id")
     .maybeSingle();
