@@ -6,13 +6,17 @@ import {
 
 export { INVALID_EMAIL_ERROR } from "@/lib/deliveries/stats";
 
+export const COMPLAINT_ERROR = "Reported as spam (feedback loop)";
+
 export type DeliveryStatus =
   | "pending"
   | "sent"
   | "failed"
   | "delivered"
   | "opened"
-  | "bounced";
+  | "clicked"
+  | "bounced"
+  | "complained";
 
 export type EmailDelivery = {
   id: string;
@@ -26,6 +30,9 @@ export type EmailDelivery = {
   sent_at: string | null;
   delivered_at: string | null;
   opened_at: string | null;
+  clicked_at: string | null;
+  clicked_url: string | null;
+  complained_at: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -42,6 +49,21 @@ function asDelivery(row: Record<string, unknown>): EmailDelivery {
 
 function normalizeEmail(value: string): string {
   return value.trim().toLowerCase();
+}
+
+function isTerminalStatus(status: string): boolean {
+  return status === "complained" || status === "bounced" || status === "failed";
+}
+
+async function getDeliveryRow(jobId: string, recipient: string) {
+  const supabase = getSupabaseAdmin();
+
+  return supabase
+    .from("email_deliveries")
+    .select("id, status, opened_at, clicked_at, complained_at")
+    .eq("job_id", jobId)
+    .eq("recipient", normalizeEmail(recipient))
+    .maybeSingle();
 }
 
 export async function recordInvalidRecipients(
@@ -91,7 +113,7 @@ export async function recordDeliveryResults(
 
     if (error) {
       throw new Error(
-        `Failed to record delivery (${result.recipient}): ${error.message}. Run migrations 003 and 004 in Supabase.`,
+        `Failed to record delivery (${result.recipient}): ${error.message}. Run migrations 003–005 in Supabase.`,
       );
     }
   }
@@ -102,17 +124,106 @@ export async function markDeliveryOpened(
   recipient: string,
   openedAt: string,
 ): Promise<boolean> {
-  const supabase = getSupabaseAdmin();
-  const normalized = normalizeEmail(recipient);
+  const { data: existing, error: readError } = await getDeliveryRow(
+    jobId,
+    recipient,
+  );
 
-  const { data: existing } = await supabase
+  if (readError) {
+    throw new Error(readError.message);
+  }
+
+  if (existing?.opened_at || existing?.complained_at) {
+    return true;
+  }
+
+  if (!existing || isTerminalStatus(existing.status)) {
+    return false;
+  }
+
+  const supabase = getSupabaseAdmin();
+  const status: DeliveryStatus =
+    existing.clicked_at || existing.status === "clicked" ? "clicked" : "opened";
+
+  const { data, error } = await supabase
     .from("email_deliveries")
-    .select("id, opened_at")
-    .eq("job_id", jobId)
-    .eq("recipient", normalized)
+    .update({
+      status,
+      opened_at: openedAt,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", existing.id)
+    .is("opened_at", null)
+    .select("id")
     .maybeSingle();
 
-  if (existing?.opened_at) {
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return Boolean(data);
+}
+
+export async function markDeliveryClicked(
+  jobId: string,
+  recipient: string,
+  clickedAt: string,
+  clickedUrl?: string,
+): Promise<boolean> {
+  const { data: existing, error: readError } = await getDeliveryRow(
+    jobId,
+    recipient,
+  );
+
+  if (readError) {
+    throw new Error(readError.message);
+  }
+
+  if (existing?.clicked_at || existing?.complained_at) {
+    return true;
+  }
+
+  if (!existing || isTerminalStatus(existing.status)) {
+    return false;
+  }
+
+  const supabase = getSupabaseAdmin();
+
+  const { data, error } = await supabase
+    .from("email_deliveries")
+    .update({
+      status: "clicked",
+      clicked_at: clickedAt,
+      clicked_url: clickedUrl ?? null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", existing.id)
+    .is("clicked_at", null)
+    .select("id")
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return Boolean(data);
+}
+
+export async function markDeliveryComplained(
+  jobId: string,
+  recipient: string,
+  complainedAt: string,
+): Promise<boolean> {
+  const { data: existing, error: readError } = await getDeliveryRow(
+    jobId,
+    recipient,
+  );
+
+  if (readError) {
+    throw new Error(readError.message);
+  }
+
+  if (existing?.complained_at) {
     return true;
   }
 
@@ -120,15 +231,18 @@ export async function markDeliveryOpened(
     return false;
   }
 
+  const supabase = getSupabaseAdmin();
+
   const { data, error } = await supabase
     .from("email_deliveries")
     .update({
-      status: "opened",
-      opened_at: openedAt,
+      status: "complained",
+      complained_at: complainedAt,
+      error: COMPLAINT_ERROR,
       updated_at: new Date().toISOString(),
     })
     .eq("id", existing.id)
-    .is("opened_at", null)
+    .is("complained_at", null)
     .select("id")
     .maybeSingle();
 
@@ -162,18 +276,18 @@ export async function markDeliveryDelivered(
   recipient: string,
   deliveredAt: string,
 ): Promise<void> {
-  const supabase = getSupabaseAdmin();
+  const { data: existing } = await getDeliveryRow(jobId, recipient);
 
-  const { data } = await supabase
-    .from("email_deliveries")
-    .select("status")
-    .eq("job_id", jobId)
-    .eq("recipient", normalizeEmail(recipient))
-    .maybeSingle();
-
-  if (!data || data.status === "opened") {
+  if (
+    !existing ||
+    isTerminalStatus(existing.status) ||
+    existing.status === "opened" ||
+    existing.status === "clicked"
+  ) {
     return;
   }
+
+  const supabase = getSupabaseAdmin();
 
   await supabase
     .from("email_deliveries")
@@ -208,34 +322,43 @@ export async function getDeliveriesForJob(
 
 export function summarizeDeliveries(deliveries: EmailDelivery[]) {
   const opened = deliveries.filter((d) => d.opened_at !== null).length;
+  const clicked = deliveries.filter((d) => d.clicked_at !== null).length;
+  const complained = deliveries.filter((d) => d.complained_at !== null).length;
+  const delivered = deliveries.filter((d) => d.delivered_at !== null).length;
   const invalid = deliveries.filter((d) =>
     isInvalidDeliveryError(d.error),
   ).length;
+  const bounced = deliveries.filter((d) => d.status === "bounced").length;
   const failed = deliveries.filter(
-    (d) =>
-      (d.status === "failed" || d.status === "bounced") &&
-      !isInvalidDeliveryError(d.error),
+    (d) => d.status === "failed" && !isInvalidDeliveryError(d.error),
   ).length;
   const sent = deliveries.filter(
     (d) =>
       d.status !== "failed" &&
       d.status !== "bounced" &&
-      d.status !== "pending",
+      d.status !== "pending" &&
+      d.status !== "complained",
   ).length;
   const notOpened = deliveries.filter(
     (d) =>
       d.sent_at !== null &&
       d.opened_at === null &&
       d.status !== "failed" &&
-      d.status !== "bounced",
+      d.status !== "bounced" &&
+      d.status !== "complained" &&
+      !isInvalidDeliveryError(d.error),
   ).length;
 
   return {
     total: deliveries.length,
     sent,
     failed,
+    bounced,
     invalid,
+    delivered,
     opened,
+    clicked,
+    complained,
     notOpened,
   };
 }
@@ -246,12 +369,18 @@ export function formatDeliveryRow(delivery: EmailDelivery) {
     status: delivery.status,
     opened: delivery.opened_at !== null,
     openedAt: delivery.opened_at,
+    clicked: delivery.clicked_at !== null,
+    clickedAt: delivery.clicked_at,
+    clickedUrl: delivery.clicked_url,
+    complained: delivery.complained_at !== null,
+    complainedAt: delivery.complained_at,
     deliveredAt: delivery.delivered_at,
     sentAt: delivery.sent_at,
     error: delivery.error,
   };
 }
 
+/** @deprecated Use getDeliveryStatsByJobIds from lib/deliveries/stats */
 export async function getOpenStatsByJobIds(
   jobIds: string[],
 ): Promise<Map<string, { opened: number; notOpened: number; total: number }>> {
@@ -268,7 +397,7 @@ export async function getOpenStatsByJobIds(
 
   const { data, error } = await supabase
     .from("email_deliveries")
-    .select("job_id, opened_at, sent_at, status")
+    .select("job_id, opened_at, sent_at, status, error")
     .in("job_id", jobIds);
 
   if (error) {
@@ -285,7 +414,9 @@ export async function getOpenStatsByJobIds(
     } else if (
       row.sent_at &&
       row.status !== "failed" &&
-      row.status !== "bounced"
+      row.status !== "bounced" &&
+      row.status !== "complained" &&
+      !isInvalidDeliveryError(row.error as string | null)
     ) {
       current.notOpened += 1;
     }

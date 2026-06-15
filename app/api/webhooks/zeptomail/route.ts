@@ -2,6 +2,8 @@ import { NextRequest } from "next/server";
 import { isBotOpenUserAgent } from "@/lib/deliveries/open-filter";
 import {
   markDeliveryBounced,
+  markDeliveryClicked,
+  markDeliveryComplained,
   markDeliveryDelivered,
   markDeliveryOpened,
 } from "@/lib/deliveries/store";
@@ -15,6 +17,10 @@ type ZeptoEventDetail = {
   time?: string;
   user_agent?: string;
   bounced_recipient?: string;
+  fblFrom?: string;
+  reason?: string;
+  diagnostic_message?: string;
+  clicked_link?: string;
 };
 
 type ZeptoEventMessage = {
@@ -54,11 +60,17 @@ type ZeptoWebhookPayload = {
   event_message?: ZeptoEventMessage[];
 };
 
+type WebhookKind =
+  | "opened"
+  | "clicked"
+  | "complained"
+  | "bounced"
+  | "delivered";
+
 function parseBody(raw: string): ZeptoWebhookPayload | null {
   try {
     return JSON.parse(raw) as ZeptoWebhookPayload;
   } catch {
-    // ZeptoMail can also send "data=<urlencoded json>"
     if (raw.startsWith("data=")) {
       try {
         const decoded = decodeURIComponent(raw.slice("data=".length));
@@ -75,6 +87,10 @@ function extractRecipients(
   message: ZeptoEventMessage,
   detail?: ZeptoEventDetail,
 ): string[] {
+  if (detail?.fblFrom) {
+    return [detail.fblFrom];
+  }
+
   if (detail?.bounced_recipient) {
     return [detail.bounced_recipient];
   }
@@ -92,11 +108,15 @@ function extractRecipients(
   return recipients;
 }
 
-function classifyEvent(
-  eventName: string,
-): "opened" | "bounced" | "delivered" | null {
+function classifyEvent(eventName: string): WebhookKind | null {
   const name = eventName.toLowerCase();
 
+  if (name.includes("feedback") || name === "fbl") {
+    return "complained";
+  }
+  if (name.includes("click")) {
+    return "clicked";
+  }
   if (
     name === "email_open" ||
     name === "open" ||
@@ -112,6 +132,11 @@ function classifyEvent(
   }
 
   return null;
+}
+
+function bounceMessage(detail?: ZeptoEventDetail): string {
+  const parts = [detail?.reason, detail?.diagnostic_message].filter(Boolean);
+  return parts.length > 0 ? parts.join(": ") : "Email bounced";
 }
 
 export async function POST(request: NextRequest) {
@@ -176,14 +201,36 @@ export async function POST(request: NextRequest) {
           }
 
           const marked = await markDeliveryOpened(jobId, recipient, eventTime);
-
+          if (marked) {
+            updated += 1;
+          } else {
+            notFound += 1;
+          }
+        } else if (kind === "clicked") {
+          const marked = await markDeliveryClicked(
+            jobId,
+            recipient,
+            eventTime,
+            detail?.clicked_link,
+          );
+          if (marked) {
+            updated += 1;
+          } else {
+            notFound += 1;
+          }
+        } else if (kind === "complained") {
+          const marked = await markDeliveryComplained(
+            jobId,
+            recipient,
+            eventTime,
+          );
           if (marked) {
             updated += 1;
           } else {
             notFound += 1;
           }
         } else if (kind === "bounced") {
-          await markDeliveryBounced(jobId, recipient, "Email bounced");
+          await markDeliveryBounced(jobId, recipient, bounceMessage(detail));
           updated += 1;
         } else if (kind === "delivered") {
           await markDeliveryDelivered(jobId, recipient, eventTime);

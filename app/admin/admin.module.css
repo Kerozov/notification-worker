@@ -316,6 +316,11 @@
   font-weight: 600;
 }
 
+.complainedCount {
+  color: #7c2d12;
+  font-weight: 600;
+}
+
 .actionLink {
   color: #2563eb;
   font-weight: 600;

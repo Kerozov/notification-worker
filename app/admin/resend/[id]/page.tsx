@@ -69,6 +69,7 @@ export default async function ResendPage({
   const invalidDeliveries = deliveries.filter((d) =>
     isInvalidDeliveryError(d.error),
   );
+  const complainedDeliveries = deliveries.filter((d) => d.complained_at);
 
   const flashError = query.error ? decodeURIComponent(query.error) : null;
   const success = query.ok === "1";
@@ -126,10 +127,17 @@ export default async function ResendPage({
               <span>{counts.requested}</span>
             </div>
             <div>
-              <strong>Sent / invalid / failed</strong>
+              <strong>Delivery</strong>
               <span>
                 {counts.sent} sent · {counts.invalid} invalid · {counts.failed}{" "}
-                failed
+                failed · {counts.bounced} bounced
+              </span>
+            </div>
+            <div>
+              <strong>Engagement</strong>
+              <span>
+                {counts.opened} opens · {counts.clicked} clicks ·{" "}
+                {counts.complained} reported
               </span>
             </div>
             <div>
@@ -143,6 +151,17 @@ export default async function ResendPage({
               <strong>Invalid addresses from last run (not sent):</strong>
               <ul>
                 {invalidDeliveries.map((d) => (
+                  <li key={d.id}>{d.recipient}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
+          {complainedDeliveries.length > 0 ? (
+            <div className={styles.invalidBox}>
+              <strong>Reported as spam (do not resend):</strong>
+              <ul>
+                {complainedDeliveries.map((d) => (
                   <li key={d.id}>{d.recipient}</li>
                 ))}
               </ul>

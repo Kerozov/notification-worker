@@ -15,6 +15,15 @@ type RouteContext = {
   params: Promise<{ id: string }>;
 };
 
+function isDeliveredRecipient(row: ReturnType<typeof formatDeliveryRow>): boolean {
+  return (
+    !row.error &&
+    row.status !== "failed" &&
+    row.status !== "bounced" &&
+    row.status !== "complained"
+  );
+}
+
 export async function GET(request: NextRequest, context: RouteContext) {
   const tenant = await resolveTenantFromRequest(request);
 
@@ -23,10 +32,12 @@ export async function GET(request: NextRequest, context: RouteContext) {
   }
 
   const { id } = await context.params;
-  const includeRecipients =
-    request.nextUrl.searchParams.get("recipients") === "true";
-  const notOpenedOnly =
-    request.nextUrl.searchParams.get("notOpened") === "true";
+  const params = request.nextUrl.searchParams;
+  const includeRecipients = params.get("recipients") === "true";
+  const notOpenedOnly = params.get("notOpened") === "true";
+  const notClickedOnly = params.get("notClicked") === "true";
+  const complainedOnly = params.get("complained") === "true";
+  const bouncedOnly = params.get("bounced") === "true";
 
   try {
     const job = await getJobForTenant(tenant.id, id);
@@ -49,19 +60,76 @@ export async function GET(request: NextRequest, context: RouteContext) {
       failed: job.failed_count,
     };
 
-    if (includeRecipients || notOpenedOnly) {
+    const needsRows =
+      includeRecipients ||
+      notOpenedOnly ||
+      notClickedOnly ||
+      complainedOnly ||
+      bouncedOnly;
+
+    if (needsRows) {
       let rows = deliveries.map(formatDeliveryRow);
 
       if (notOpenedOnly) {
-        rows = rows.filter((row) => !row.opened && !row.error);
+        rows = rows.filter(
+          (row) => isDeliveredRecipient(row) && !row.opened,
+        );
       }
 
-      response.recipients = rows;
+      if (notClickedOnly) {
+        rows = rows.filter(
+          (row) => isDeliveredRecipient(row) && !row.clicked,
+        );
+      }
+
+      if (complainedOnly) {
+        rows = rows.filter((row) => row.complained);
+      }
+
+      if (bouncedOnly) {
+        rows = rows.filter((row) => row.status === "bounced");
+      }
+
+      if (includeRecipients || complainedOnly || bouncedOnly || notClickedOnly) {
+        response.recipients = rows;
+      }
     }
 
     if (notOpenedOnly && !includeRecipients) {
       response.notOpenedEmails = deliveries
-        .filter((d) => d.opened_at === null && d.status !== "failed" && d.status !== "bounced")
+        .filter(
+          (d) =>
+            d.sent_at !== null &&
+            d.opened_at === null &&
+            d.status !== "failed" &&
+            d.status !== "bounced" &&
+            d.status !== "complained",
+        )
+        .map((d) => d.recipient);
+    }
+
+    if (notClickedOnly && !includeRecipients) {
+      response.notClickedEmails = deliveries
+        .filter(
+          (d) =>
+            d.sent_at !== null &&
+            d.clicked_at === null &&
+            d.status !== "failed" &&
+            d.status !== "bounced" &&
+            d.status !== "complained",
+        )
+        .map((d) => d.recipient);
+    }
+
+    if (complainedOnly && !includeRecipients) {
+      response.complainedEmails = deliveries
+        .filter((d) => d.complained_at !== null)
+        .map((d) => d.recipient);
+    }
+
+    if (bouncedOnly && !includeRecipients) {
+      response.bouncedEmails = deliveries
+        .filter((d) => d.status === "bounced")
         .map((d) => d.recipient);
     }
 

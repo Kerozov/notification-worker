@@ -451,7 +451,11 @@ export function toJobResponse(job: EmailJob, invalid: string[] = []) {
           sent: 0,
           invalid: invalid.length,
           failed: 0,
+          bounced: 0,
+          delivered: 0,
           opened: 0,
+          clicked: 0,
+          complained: 0,
           notOpened: 0,
           total: invalid.length,
         }

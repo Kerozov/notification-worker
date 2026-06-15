@@ -2,11 +2,11 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getSupabaseAdmin } from "@/lib/db/supabase";
 import { hasAdminSession } from "@/lib/auth/admin";
-import { getOpenStatsByJobIds } from "@/lib/deliveries/store";
 import {
   getDeliveryStatsByJobIds,
   getJobDisplayCounts,
   resolveDisplayStatus,
+  type JobDeliveryStats,
 } from "@/lib/deliveries/stats";
 import { runCronNow } from "./actions";
 import styles from "./admin.module.css";
@@ -104,24 +104,12 @@ function tenantJobStats(
 function JobsTable({
   jobs,
   tenantIdToSlug,
-  openStats,
   deliveryStats,
   emptyMessage,
 }: {
   jobs: JobRow[];
   tenantIdToSlug: Map<string, string>;
-  openStats: Map<string, { opened: number; notOpened: number; total: number }>;
-  deliveryStats: Map<
-    string,
-    {
-      sent: number;
-      invalid: number;
-      failed: number;
-      opened: number;
-      notOpened: number;
-      total: number;
-    }
-  >;
+  deliveryStats: Map<string, JobDeliveryStats>;
   emptyMessage: string;
 }) {
   if (jobs.length === 0) {
@@ -142,7 +130,10 @@ function JobsTable({
             <th>Sent</th>
             <th>Invalid</th>
             <th>Failed</th>
+            <th>Bounced</th>
             <th>Opens</th>
+            <th>Clicks</th>
+            <th>Reported</th>
             <th>Send at</th>
             <th>Updated</th>
             <th>Actions</th>
@@ -177,14 +168,13 @@ function JobsTable({
               <td className={counts.failed > 0 ? styles.failedCount : undefined}>
                 {counts.failed}
               </td>
-              <td>
-                {(() => {
-                  const open = openStats.get(job.id);
-                  if (!open || open.total === 0) {
-                    return job.sent_count > 0 ? "0 opened (no delivery rows)" : "—";
-                  }
-                  return `${open.opened} opened · ${open.notOpened} not`;
-                })()}
+              <td className={counts.bounced > 0 ? styles.failedCount : undefined}>
+                {counts.bounced}
+              </td>
+              <td>{counts.opened}</td>
+              <td>{counts.clicked}</td>
+              <td className={counts.complained > 0 ? styles.complainedCount : undefined}>
+                {counts.complained}
               </td>
               <td>{formatDateTime(job.send_at)}</td>
               <td title={formatRelative(job.updated_at)}>
@@ -295,10 +285,7 @@ export default async function AdminPage({
       ...pendingQueue.map((job) => job.id),
     ]),
   ];
-  const [openStats, deliveryStats] = await Promise.all([
-    getOpenStatsByJobIds(allTableJobIds),
-    getDeliveryStatsByJobIds(allTableJobIds),
-  ]);
+  const deliveryStats = await getDeliveryStatsByJobIds(allTableJobIds);
 
   return (
     <main className={styles.adminPage}>
@@ -408,7 +395,6 @@ export default async function AdminPage({
           <JobsTable
             jobs={pendingQueue}
             tenantIdToSlug={tenantIdToSlug}
-            openStats={openStats}
             deliveryStats={deliveryStats}
             emptyMessage="No pending jobs in the queue."
           />
@@ -424,7 +410,6 @@ export default async function AdminPage({
           <JobsTable
             jobs={recentJobs}
             tenantIdToSlug={tenantIdToSlug}
-            openStats={openStats}
             deliveryStats={deliveryStats}
             emptyMessage="No jobs yet."
           />
