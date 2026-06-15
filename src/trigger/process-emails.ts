@@ -1,11 +1,38 @@
-import { schedules } from "@trigger.dev/sdk/v3";
+import { schedules, wait } from "@trigger.dev/sdk/v3";
+
+const POLL_INTERVAL_SECONDS = 1;
+
+async function invokeWorkerCron() {
+  const workerUrl = process.env.WORKER_URL;
+  const cronSecret = process.env.CRON_SECRET;
+
+  if (!workerUrl || !cronSecret) {
+    throw new Error("WORKER_URL and CRON_SECRET are required");
+  }
+
+  const response = await fetch(`${workerUrl}/api/cron/process`, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${cronSecret}`,
+    },
+  });
+
+  const body = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    throw new Error(
+      `Cron failed (${response.status}): ${JSON.stringify(body)}`,
+    );
+  }
+
+  return body;
+}
 
 /**
- * Trigger.dev scheduled task that drains the worker's pending email queue.
+ * Polls the worker cron endpoint every second.
  *
- * It simply calls the worker cron endpoint every 5 minutes so we don't need
- * Vercel Pro cron. The worker keeps `send_at` in the database; this task is the
- * external timer that tells the worker "process whatever is due now".
+ * Trigger.dev cron only supports minute granularity, so this task runs a 1s
+ * loop. A once-per-minute schedule restarts it if a run hits maxDuration.
  *
  * Required Trigger.dev environment variables:
  *   - WORKER_URL   e.g. https://notification-worker-phi.vercel.app
@@ -13,31 +40,13 @@ import { schedules } from "@trigger.dev/sdk/v3";
  */
 export const processEmails = schedules.task({
   id: "process-emails",
-  cron: "*/5 * * * *",
-  maxDuration: 120,
+  cron: "* * * * *",
+  ttl: "30s",
+  maxDuration: 3600,
   run: async () => {
-    const workerUrl = process.env.WORKER_URL;
-    const cronSecret = process.env.CRON_SECRET;
-
-    if (!workerUrl || !cronSecret) {
-      throw new Error("WORKER_URL and CRON_SECRET are required");
+    while (true) {
+      await invokeWorkerCron();
+      await wait.for({ seconds: POLL_INTERVAL_SECONDS });
     }
-
-    const response = await fetch(`${workerUrl}/api/cron/process`, {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${cronSecret}`,
-      },
-    });
-
-    const body = await response.json().catch(() => null);
-
-    if (!response.ok) {
-      throw new Error(
-        `Cron failed (${response.status}): ${JSON.stringify(body)}`,
-      );
-    }
-
-    return body;
   },
 });

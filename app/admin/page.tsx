@@ -262,18 +262,18 @@ export default async function AdminPage({
           <div>
             <h1 className={styles.title}>Email Worker</h1>
             <p className={styles.subtitle}>
-              Queue monitor, cron health, and delivery overview
+              Queue monitor, Trigger.dev health, and delivery overview
             </p>
           </div>
           <div className={styles.headerActions}>
             <div className={styles.headerMeta}>
-              <span>Last cron run (Europe/Sofia)</span>
+              <span>Last queue run (Europe/Sofia)</span>
               <strong>{formatDateTime(lastCronRun)}</strong>
               <span>{formatRelative(lastCronRun)}</span>
             </div>
             <form className={styles.runCronForm} action={runCronNow}>
               <button className={styles.runCronButton} type="submit">
-                Run cron now
+                Process queue now
               </button>
             </form>
           </div>
@@ -281,9 +281,9 @@ export default async function AdminPage({
 
         <section className={styles.planBanner}>
           <div className={styles.planBannerText}>
-            <strong>Vercel Hobby setup:</strong> cron runs once daily at 09:00 UTC.
-            Immediate sends via <code>/api/v1/send</code> still work without cron.
-            For scheduled jobs before Pro, use <strong>Run cron now</strong> or an external scheduler.
+            <strong>Scheduler:</strong> Trigger.dev polls the queue every second in production.
+            Immediate sends via <code>/api/v1/send</code> do not need the scheduler.
+            Use <strong>Process queue now</strong> for a manual drain.
           </div>
         </section>
 
@@ -293,7 +293,7 @@ export default async function AdminPage({
 
         {cronProcessed !== null && !Number.isNaN(cronProcessed) ? (
           <section className={styles.successBanner}>
-            Cron finished. Processed {cronProcessed} job(s).
+            Queue processed. Handled {cronProcessed} job(s).
           </section>
         ) : null}
 
@@ -357,7 +357,7 @@ export default async function AdminPage({
           <div className={styles.sectionHeader}>
             <div>
               <h2 className={styles.sectionTitle}>Pending queue</h2>
-              <p className={styles.sectionHint}>Next jobs to be picked up by cron</p>
+              <p className={styles.sectionHint}>Next jobs for Trigger.dev to process</p>
             </div>
           </div>
           <JobsTable

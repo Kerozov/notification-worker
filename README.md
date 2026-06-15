@@ -2,8 +2,7 @@
 
 Minimal multi-tenant dispatch service for queued email sending via **ZeptoMail**.
 Each tenant site enqueues jobs through a Bearer API key; the worker stores `send_at`
-in the database and an external scheduler (**Trigger.dev**) drains the queue — so no
-Vercel Pro cron is required.
+in the database and **Trigger.dev** drains the queue every second.
 
 ## Architecture
 
@@ -15,7 +14,7 @@ FunnelBrand / client sites
 Email Worker (Next.js on Vercel Free)
     │  writes email_jobs (pending) in Supabase
     ▼
-Trigger.dev  ──every 5 min──▶ GET /api/cron/process (Bearer CRON_SECRET)
+Trigger.dev  ──every 1s──────▶ GET /api/cron/process (Bearer CRON_SECRET)
     ▼
 Worker claims due jobs ──▶ ZeptoMail batch API (track_opens=true)
     ▼
@@ -23,7 +22,7 @@ ZeptoMail webhook ──▶ POST /api/webhooks/zeptomail ──▶ email_deliver
 ```
 
 - **send_at** lives in the worker DB (source of truth, supports cancel + idempotency)
-- **Trigger.dev** is just the timer that pings the cron endpoint (replaces Vercel cron)
+- **Trigger.dev** polls `/api/cron/process` every second (production scheduler)
 - **ZeptoMail** only sends + reports opens via webhook (no native scheduling)
 
 ## Stack
@@ -31,7 +30,7 @@ ZeptoMail webhook ──▶ POST /api/webhooks/zeptomail ──▶ email_deliver
 - Next.js 15 (App Router) + TypeScript
 - Supabase Postgres (service role on server only)
 - ZeptoMail batch API (50 recipients per request)
-- Trigger.dev scheduled task (or Vercel cron as fallback)
+- Trigger.dev scheduled task (`src/trigger/process-emails.ts`)
 
 ## Setup
 
@@ -173,43 +172,35 @@ curl -X DELETE https://YOUR_WORKER/api/v1/jobs/JOB_ID \
 
 ### Cron processor
 
-Called by Trigger.dev (or manually):
+Called by **Trigger.dev** in production (or manually from admin):
 
 ```bash
 curl https://YOUR_WORKER/api/cron/process \
   -H "Authorization: Bearer ${CRON_SECRET}"
 ```
 
-Or use **Run cron now** in `/admin` (uses `ADMIN_SECRET`, no `CRON_SECRET` in the browser).
+Or use **Process queue now** in `/admin` (uses `ADMIN_SECRET`, no `CRON_SECRET` in the browser).
 
-## Scheduling: Trigger.dev (recommended, free of Vercel Pro)
+## Scheduling: Trigger.dev
 
-`src/trigger/process-emails.ts` is a Trigger.dev scheduled task that hits `/api/cron/process`
-every 5 minutes. Deploy it to Trigger.dev with these env vars:
+`src/trigger/process-emails.ts` polls `/api/cron/process` every second.
+Deploy to Trigger.dev (project `proj_txagoerfovcysbewkqzq`) with:
 
 - `WORKER_URL` — e.g. `https://notification-worker-phi.vercel.app`
 - `CRON_SECRET` — same value as the worker
 
 ```bash
-# already initialized with project proj_txagoerfovcysbewkqzq
 bun run trigger:dev      # local dev (syncs tasks to Trigger.dev)
 bun run trigger:deploy   # production
 ```
 
-### Fallback: Vercel cron
-
-| Plan | Cron frequency | File |
-|------|----------------|------|
-| Hobby (free) | once per day | `vercel.json` → `0 9 * * *` |
-| Pro | every minute | copy `vercel.pro.json` over `vercel.json` → `*/5 * * * *` |
-
-With Trigger.dev driving the queue you can leave `vercel.json` as a daily safety net.
+No Vercel cron is configured — scheduling is entirely on Trigger.dev.
 
 ## Admin panel
 
 Sign in via `/api/admin/login?secret=YOUR_ADMIN_SECRET` (sets a cookie), then open `/admin`.
-Shows last cron run, 24h job counts, per-tenant activity, pending queue, recent jobs with
-open counts, failed jobs, and a **Run cron now** button.
+Shows last queue run, 24h job counts, per-tenant activity, pending queue, recent jobs with
+open counts, failed jobs, and a **Process queue now** button.
 
 ## Limits (v1)
 
@@ -242,5 +233,4 @@ trigger.config.ts
 scripts/seed.ts
 scripts/migrate.ts
 supabase/migrations/*.sql
-vercel.json
 ```
