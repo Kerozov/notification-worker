@@ -295,7 +295,6 @@ export async function processClaimedSmsJob(
         : 0;
     const sendFailed = result.failed;
     const totalFailed = priorInvalid + sendFailed;
-    const dbStatus = result.sent === 0 ? "failed" : "sent";
     const status =
       result.sent === 0 ? "failed" : totalFailed > 0 ? "partial" : "sent";
     const sendErrors =
@@ -310,7 +309,7 @@ export async function processClaimedSmsJob(
     await supabase
       .from("sms_jobs")
       .update({
-        status: dbStatus,
+        status,
         sent_count: result.sent,
         failed_count: totalFailed,
         error: errorMessage,

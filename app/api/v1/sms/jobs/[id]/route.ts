@@ -3,11 +3,12 @@ import {
   resolveTenantFromRequest,
   unauthorizedResponse,
 } from "@/lib/auth/tenant";
-import { cancelPendingSmsJob } from "@/lib/jobs/process-sms";
+import { cancelPendingSmsJob, toSmsJobResponse } from "@/lib/jobs/process-sms";
 import { getSmsJobForTenant } from "@/lib/jobs/query-sms";
 import {
   formatSmsDeliveryRow,
   getSmsDeliveriesForJob,
+  INVALID_PHONE_ERROR,
   summarizeSmsDeliveries,
 } from "@/lib/sms/deliveries/store";
 
@@ -37,13 +38,17 @@ export async function GET(request: NextRequest, context: RouteContext) {
 
     const deliveries = await getSmsDeliveriesForJob(id, tenant.id);
     const summary = summarizeSmsDeliveries(deliveries);
+    const invalidPhones = deliveries
+      .filter((d) => d.error?.includes(INVALID_PHONE_ERROR))
+      .map((d) => d.recipient);
 
     const response: Record<string, unknown> = {
       jobId: job.id,
-      status: job.status,
+      status: toSmsJobResponse(job, invalidPhones).status,
       body: job.body,
       sendAt: job.send_at,
       sentAt: job.sent_at,
+      error: job.error,
       tracking: summary,
       sent: job.sent_count,
       failed: job.failed_count,

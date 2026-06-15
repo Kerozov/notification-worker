@@ -33,7 +33,7 @@ function discoverTenantsFromEnv(): SeedTenant[] {
   for (const [key, apiKey] of Object.entries(process.env)) {
     const match = key.match(/^TENANT_(.+)_KEY$/);
 
-    if (!match || !apiKey?.trim()) {
+    if (!match || !apiKey?.trim() || key.endsWith("_NOTIFIER_KEY")) {
       continue;
     }
 
