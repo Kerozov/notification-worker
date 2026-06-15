@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Deployed separately to Trigger.dev / run with Bun:
+    "scripts/**",
   ]),
 ]);
 

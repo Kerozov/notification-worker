@@ -10,14 +10,18 @@ export async function runCronNow(): Promise<void> {
     redirect("/admin?error=unauthorized");
   }
 
+  let processed = 0;
+
   try {
     const result = await processPendingJobs(20);
     await recordCronRun();
-    revalidatePath("/admin");
-    redirect(`/admin?cronProcessed=${result.processed}`);
+    processed = result.processed;
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Cron processing failed";
     redirect(`/admin?error=${encodeURIComponent(message)}`);
   }
+
+  revalidatePath("/admin");
+  redirect(`/admin?cronProcessed=${processed}`);
 }

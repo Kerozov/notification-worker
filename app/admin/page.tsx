@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getSupabaseAdmin } from "@/lib/db/supabase";
 import { hasAdminSession } from "@/lib/auth/admin";
+import { getOpenStatsByJobIds } from "@/lib/deliveries/store";
 import { runCronNow } from "./actions";
 import styles from "./admin.module.css";
 import {
@@ -97,10 +98,12 @@ function tenantJobStats(
 function JobsTable({
   jobs,
   tenantIdToSlug,
+  openStats,
   emptyMessage,
 }: {
   jobs: JobRow[];
   tenantIdToSlug: Map<string, string>;
+  openStats: Map<string, { opened: number; notOpened: number; total: number }>;
   emptyMessage: string;
 }) {
   if (jobs.length === 0) {
@@ -118,6 +121,7 @@ function JobsTable({
             <th>Subject</th>
             <th>Recipients</th>
             <th>Sent / Failed</th>
+            <th>Opens</th>
             <th>Send at</th>
             <th>Updated</th>
             <th>Job</th>
@@ -141,6 +145,11 @@ function JobsTable({
               </td>
               <td>
                 {job.sent_count} / {job.failed_count}
+              </td>
+              <td>
+                {openStats.get(job.id)
+                  ? `${openStats.get(job.id)!.opened} opened · ${openStats.get(job.id)!.notOpened} not`
+                  : "—"}
               </td>
               <td>{formatDateTime(job.send_at)}</td>
               <td title={formatRelative(job.updated_at)}>
@@ -242,6 +251,9 @@ export default async function AdminPage({
   const tenantIdToSlug = new Map(tenants.map((tenant) => [tenant.id, tenant.slug]));
   const lastCronRun = (metaResult.data as { value: string } | null)?.value;
   const tenantStats = tenantJobStats(jobs24h, tenants);
+  const openStats = await getOpenStatsByJobIds(
+    [...recentJobs, ...pendingQueue].map((job) => job.id),
+  );
 
   return (
     <main className={styles.adminPage}>
@@ -255,7 +267,7 @@ export default async function AdminPage({
           </div>
           <div className={styles.headerActions}>
             <div className={styles.headerMeta}>
-              <span>Last cron run</span>
+              <span>Last cron run (Europe/Sofia)</span>
               <strong>{formatDateTime(lastCronRun)}</strong>
               <span>{formatRelative(lastCronRun)}</span>
             </div>
@@ -351,6 +363,7 @@ export default async function AdminPage({
           <JobsTable
             jobs={pendingQueue}
             tenantIdToSlug={tenantIdToSlug}
+            openStats={openStats}
             emptyMessage="No pending jobs in the queue."
           />
         </section>
@@ -365,6 +378,7 @@ export default async function AdminPage({
           <JobsTable
             jobs={recentJobs}
             tenantIdToSlug={tenantIdToSlug}
+            openStats={openStats}
             emptyMessage="No jobs yet."
           />
         </section>

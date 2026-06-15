@@ -6,6 +6,7 @@ import {
   Tenant,
 } from "@/lib/db/supabase";
 import { sendEmailBatch } from "@/lib/email/send";
+import { recordDeliveryResults } from "@/lib/deliveries/store";
 import { normalizeRecipients } from "@/lib/validation/email-job";
 
 export type ProcessJobResult = {
@@ -192,7 +193,10 @@ export async function processClaimedJob(
       html: job.html,
       recipients: job.recipients,
       replyTo,
+      clientReference: job.id,
     });
+
+    await recordDeliveryResults(job.id, job.tenant_id, result.deliveries);
 
     const status = result.failed > 0 && result.sent === 0 ? "failed" : "sent";
     const errorMessage =

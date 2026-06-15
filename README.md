@@ -1,13 +1,37 @@
 # Email Worker
 
-Minimal dispatch service for queued email sending via Resend. Each tenant site enqueues jobs through a Bearer API key; a single Vercel cron worker processes pending jobs.
+Minimal multi-tenant dispatch service for queued email sending via **ZeptoMail**.
+Each tenant site enqueues jobs through a Bearer API key; the worker stores `send_at`
+in the database and an external scheduler (**Trigger.dev**) drains the queue — so no
+Vercel Pro cron is required.
+
+## Architecture
+
+```
+FunnelBrand / client sites
+    │  POST /api/v1/send       (immediate)
+    │  POST /api/v1/schedule   (send_at in the future)
+    ▼
+Email Worker (Next.js on Vercel Free)
+    │  writes email_jobs (pending) in Supabase
+    ▼
+Trigger.dev  ──every 5 min──▶ GET /api/cron/process (Bearer CRON_SECRET)
+    ▼
+Worker claims due jobs ──▶ ZeptoMail batch API (track_opens=true)
+    ▼
+ZeptoMail webhook ──▶ POST /api/webhooks/zeptomail ──▶ email_deliveries (opened/bounced)
+```
+
+- **send_at** lives in the worker DB (source of truth, supports cancel + idempotency)
+- **Trigger.dev** is just the timer that pings the cron endpoint (replaces Vercel cron)
+- **ZeptoMail** only sends + reports opens via webhook (no native scheduling)
 
 ## Stack
 
 - Next.js 15 (App Router) + TypeScript
 - Supabase Postgres (service role on server only)
-- Resend batch API (50 emails per request)
-- Vercel cron once daily on Hobby (see `vercel.json`; Pro uses `vercel.pro.json`)
+- ZeptoMail batch API (50 recipients per request)
+- Trigger.dev scheduled task (or Vercel cron as fallback)
 
 ## Setup
 
@@ -17,29 +41,39 @@ Minimal dispatch service for queued email sending via Resend. Each tenant site e
 cp .env.example .env.local
 ```
 
-2. Run the Supabase migration:
+2. Run the Supabase migrations (SQL editor), in order:
 
-```sql
--- supabase/migrations/001_init.sql
+```
+supabase/migrations/001_init.sql
+supabase/migrations/002_from_address.sql
+supabase/migrations/003_email_deliveries.sql
+supabase/migrations/004_zeptomail.sql
 ```
 
-3. Install dependencies:
+3. Install dependencies and seed tenants:
 
 ```bash
 bun install
-```
-
-4. Seed tenants:
-
-```bash
 bun run seed
 ```
 
-5. Start dev server:
+4. Start dev server:
 
 ```bash
 bun run dev
 ```
+
+## ZeptoMail setup
+
+1. Create an **Agent** in ZeptoMail and verify your sending domain (DKIM/SPF).
+2. Copy the **Send Mail Token** → `ZEPTOMAIL_API_KEY` (value after `Zoho-enczapikey `, or the whole token — the worker sends it as `Zoho-enczapikey <token>`).
+3. Add a **Webhook** on the Agent:
+   - URL: `https://YOUR_WORKER/api/webhooks/zeptomail?key=YOUR_WEBHOOK_SECRET`
+   - Events: **Open**, **Hard bounce**, **Soft bounce**, **Delivered**
+   - Set `ZEPTOMAIL_WEBHOOK_SECRET` to the same `YOUR_WEBHOOK_SECRET` value.
+
+The worker correlates webhook events to recipients via `client_reference` (the job id)
+plus the recipient address — no per-recipient provider id needed.
 
 ## API
 
@@ -52,11 +86,11 @@ Content-Type: application/json
 
 Body fields:
 
-- `from` — sender address from the calling app, e.g. `hello@yourdomain.com` or `Brand Name <hello@yourdomain.com>`
+- `from` — sender address from the calling app, e.g. `hello@yourdomain.com` or `Brand Name <hello@yourdomain.com>` (must be a ZeptoMail-verified domain)
 - If omitted, worker uses tenant `default_from` from the database (set via seed env)
 - `replyTo` — optional; falls back to tenant `default_reply_to`
 
-Resend still uses one worker `RESEND_API_KEY`, but each email can have a different verified `from` domain.
+One worker `ZEPTOMAIL_API_KEY` sends for all tenants; each email can use a different verified `from` domain.
 
 ### Add a new app (no worker code changes)
 
@@ -81,18 +115,13 @@ Optional `TENANT_*_FROM` is only a fallback when the app omits `from` in the req
 curl -X POST https://YOUR_WORKER/api/v1/send \
   -H "Authorization: Bearer fb_xxx" \
   -H "Content-Type: application/json" \
-  -d '{"subject":"Test","html":"<p>Hi</p>","from":"FunnelBrand <hello@funnelbrand.com>","recipients":["you@example.com"]}'
+  -d '{"subject":"Test","html":"<p>Hi</p>","from":"FunnelBrand <hello@funnel-brand.com>","recipients":["you@example.com"]}'
 ```
 
 Response:
 
 ```json
-{
-  "jobId": "uuid",
-  "status": "sent",
-  "sent": 1,
-  "failed": 0
-}
+{ "jobId": "uuid", "status": "sent", "sent": 1, "failed": 0 }
 ```
 
 ### Schedule for later
@@ -101,18 +130,39 @@ Response:
 curl -X POST https://YOUR_WORKER/api/v1/schedule \
   -H "Authorization: Bearer fb_xxx" \
   -H "Content-Type: application/json" \
-  -d '{"subject":"Reminder","html":"<p>Tomorrow</p>","from":"FunnelBrand <hello@funnelbrand.com>","recipients":["a@b.com"],"sendAt":"2026-06-15T09:00:00.000Z","idempotencyKey":"campaign-123"}'
+  -d '{"subject":"Reminder","html":"<p>Tomorrow</p>","from":"FunnelBrand <hello@funnel-brand.com>","recipients":["a@b.com"],"sendAt":"2026-06-15T09:00:00.000Z","idempotencyKey":"campaign-123"}'
 ```
 
 Response:
 
 ```json
-{
-  "jobId": "uuid",
-  "status": "pending",
-  "sendAt": "2026-06-15T09:00:00.000Z"
-}
+{ "jobId": "uuid", "status": "pending", "sendAt": "2026-06-15T09:00:00.000Z" }
 ```
+
+### Job status + open tracking
+
+```bash
+curl https://YOUR_WORKER/api/v1/jobs/JOB_ID \
+  -H "Authorization: Bearer fb_xxx"
+```
+
+Response includes a `tracking` summary: `opened`, `notOpened`, `sent`, `failed`.
+
+Per-recipient details:
+
+```bash
+curl "https://YOUR_WORKER/api/v1/jobs/JOB_ID?recipients=true" \
+  -H "Authorization: Bearer fb_xxx"
+```
+
+Only emails not opened yet:
+
+```bash
+curl "https://YOUR_WORKER/api/v1/jobs/JOB_ID?notOpened=true" \
+  -H "Authorization: Bearer fb_xxx"
+```
+
+Returns `notOpenedEmails: ["a@b.com", ...]` plus the `tracking` summary.
 
 ### Cancel pending job
 
@@ -123,34 +173,43 @@ curl -X DELETE https://YOUR_WORKER/api/v1/jobs/JOB_ID \
 
 ### Cron processor
 
-Called by Vercel cron (once daily on Hobby) or manually:
+Called by Trigger.dev (or manually):
 
 ```bash
 curl https://YOUR_WORKER/api/cron/process \
   -H "Authorization: Bearer ${CRON_SECRET}"
 ```
 
-Or use **Run cron now** in `/admin` (uses `ADMIN_SECRET`, no `CRON_SECRET` needed in browser).
+Or use **Run cron now** in `/admin` (uses `ADMIN_SECRET`, no `CRON_SECRET` in the browser).
 
-## Vercel plans (cron)
+## Scheduling: Trigger.dev (recommended, free of Vercel Pro)
 
-| Plan | Cron frequency | This repo |
-|------|----------------|-----------|
-| **Hobby (free)** | Max once per day | `vercel.json` → `0 9 * * *` (09:00 UTC daily) |
-| **Pro** | Every minute | Copy `vercel.pro.json` over `vercel.json` → `*/5 * * * *` |
+`src/trigger/process-emails.ts` is a Trigger.dev scheduled task that hits `/api/cron/process`
+every 5 minutes. Deploy it to Trigger.dev with these env vars:
 
-Hobby cannot deploy `*/5 * * * *` — deployment will fail.
+- `WORKER_URL` — e.g. `https://notification-worker-phi.vercel.app`
+- `CRON_SECRET` — same value as the worker
 
-**Free-tier workflow:**
+```bash
+# already initialized with project proj_txagoerfovcysbewkqzq
+bun run trigger:dev      # local dev (syncs tasks to Trigger.dev)
+bun run trigger:deploy   # production
+```
 
-- `POST /api/v1/send` → sends immediately, no cron needed
-- `POST /api/v1/schedule` → pending until cron runs
-- Use admin **Run cron now** for pending jobs between daily runs
-- Upgrade to Pro when you need automatic 5-minute processing
+### Fallback: Vercel cron
+
+| Plan | Cron frequency | File |
+|------|----------------|------|
+| Hobby (free) | once per day | `vercel.json` → `0 9 * * *` |
+| Pro | every minute | copy `vercel.pro.json` over `vercel.json` → `*/5 * * * *` |
+
+With Trigger.dev driving the queue you can leave `vercel.json` as a daily safety net.
 
 ## Admin panel
 
-Open `/admin?secret=YOUR_ADMIN_SECRET` or visit `/api/admin/login?secret=YOUR_ADMIN_SECRET` once to set the auth cookie. Shows cron status, 24h job counts, tenants, and recent failed jobs.
+Sign in via `/api/admin/login?secret=YOUR_ADMIN_SECRET` (sets a cookie), then open `/admin`.
+Shows last cron run, 24h job counts, per-tenant activity, pending queue, recent jobs with
+open counts, failed jobs, and a **Run cron now** button.
 
 ## Limits (v1)
 
@@ -159,15 +218,6 @@ Open `/admin?secret=YOUR_ADMIN_SECRET` or visit `/api/admin/login?secret=YOUR_AD
 - Cron processes up to 20 pending jobs per run
 - Idempotency: same `tenant + idempotencyKey` returns the existing job
 
-## Integration (later)
-
-FunnelBrand and custom client sites should call:
-
-- `POST /api/v1/send` for immediate campaigns
-- `POST /api/v1/schedule` for scheduled campaigns
-
-Each site uses its own tenant API key.
-
 ## Project structure
 
 ```
@@ -175,12 +225,22 @@ app/api/v1/send/route.ts
 app/api/v1/schedule/route.ts
 app/api/v1/jobs/[id]/route.ts
 app/api/cron/process/route.ts
+app/api/webhooks/zeptomail/route.ts
+app/api/admin/login/route.ts
 app/admin/page.tsx
 lib/db/supabase.ts
-lib/email/send.ts
+lib/email/send.ts          # ZeptoMail batch adapter
+lib/deliveries/store.ts    # per-recipient open/bounce tracking
 lib/auth/tenant.ts
+lib/auth/admin.ts
 lib/jobs/process.ts
-supabase/migrations/001_init.sql
+lib/jobs/query.ts
+lib/rate-limit/tenant.ts
+lib/validation/email-job.ts
+src/trigger/process-emails.ts  # Trigger.dev scheduler
+trigger.config.ts
 scripts/seed.ts
+scripts/migrate.ts
+supabase/migrations/*.sql
 vercel.json
 ```

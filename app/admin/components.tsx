@@ -40,8 +40,14 @@ export function formatDateTime(value: string | null | undefined): string {
   }
 
   return new Intl.DateTimeFormat("bg-BG", {
-    dateStyle: "short",
-    timeStyle: "medium",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    timeZone: "Europe/Sofia",
+    timeZoneName: "short",
   }).format(new Date(value));
 }
 
