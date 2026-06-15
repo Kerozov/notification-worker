@@ -10,15 +10,65 @@ type ZeptoEmailAddress = {
   address?: string;
 };
 
+type ZeptoEventDetail = {
+  time?: string;
+  user_agent?: string;
+};
+
 type ZeptoEventMessage = {
   email_info?: {
     client_reference?: string;
     to?: ZeptoEmailAddress[];
   };
   event_data?: {
-    details?: { time?: string };
+    details?: ZeptoEventDetail[] | ZeptoEventDetail;
   }[];
 };
+
+// Proxies/scanners that fetch the tracking pixel automatically (at delivery time,
+// not when a human opens). They cause false "opened" events, so we ignore them.
+const AUTOMATED_OPEN_AGENTS = [
+  "googleimageproxy",
+  "google-read-aloud",
+  "yahoomailproxy",
+  "ggpht.com",
+  "bingpreview",
+  "facebookexternalhit",
+  "slackbot",
+  "whatsapp",
+  "telegrambot",
+  "twitterbot",
+  "discordbot",
+  "skypeuripreview",
+  "outlook-iossvc",
+  "microsoft office",
+  "proofpoint",
+  "barracuda",
+  "mimecast",
+  "symantec",
+  "cisco",
+];
+
+function isAutomatedOpen(userAgent: string | undefined): boolean {
+  if (!userAgent) {
+    return false;
+  }
+
+  const ua = userAgent.toLowerCase();
+  return AUTOMATED_OPEN_AGENTS.some((agent) => ua.includes(agent));
+}
+
+function firstDetail(
+  message: ZeptoEventMessage,
+): ZeptoEventDetail | undefined {
+  const details = message.event_data?.[0]?.details;
+
+  if (Array.isArray(details)) {
+    return details[0];
+  }
+
+  return details;
+}
 
 type ZeptoWebhookPayload = {
   event_name?: string[] | string;
@@ -102,6 +152,7 @@ export async function POST(request: NextRequest) {
   const messages = payload.event_message ?? [];
   const now = new Date().toISOString();
   let updated = 0;
+  let skipped = 0;
 
   try {
     for (const message of messages) {
@@ -111,8 +162,16 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
-      const eventTime = message.event_data?.[0]?.details?.time ?? now;
+      const detail = firstDetail(message);
+      const eventTime = detail?.time ?? now;
       const recipients = extractRecipients(message);
+
+      // Ignore opens triggered by mail-provider proxies / scanners (e.g. Gmail's
+      // GoogleImageProxy) that pre-fetch the pixel before a human reads the mail.
+      if (kind === "opened" && isAutomatedOpen(detail?.user_agent)) {
+        skipped += recipients.length;
+        continue;
+      }
 
       for (const recipient of recipients) {
         if (kind === "opened") {
@@ -131,5 +190,5 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: message }, { status: 500 });
   }
 
-  return Response.json({ ok: true, kind, updated });
+  return Response.json({ ok: true, kind, updated, skipped });
 }

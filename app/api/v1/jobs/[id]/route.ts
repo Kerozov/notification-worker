@@ -45,6 +45,8 @@ export async function GET(request: NextRequest, context: RouteContext) {
       sendAt: job.send_at,
       sentAt: job.sent_at,
       tracking: summary,
+      sent: job.sent_count,
+      failed: job.failed_count,
     };
 
     if (includeRecipients || notOpenedOnly) {

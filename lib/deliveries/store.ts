@@ -38,6 +38,25 @@ function normalizeEmail(value: string): string {
   return value.trim().toLowerCase();
 }
 
+export async function recordInvalidRecipients(
+  jobId: string,
+  tenantId: string,
+  invalid: string[],
+): Promise<void> {
+  if (invalid.length === 0) {
+    return;
+  }
+
+  await recordDeliveryResults(
+    jobId,
+    tenantId,
+    invalid.map((recipient) => ({
+      recipient,
+      error: "Invalid email address (not sent)",
+    })),
+  );
+}
+
 export async function recordDeliveryResults(
   jobId: string,
   tenantId: string,
@@ -160,8 +179,15 @@ export async function getDeliveriesForJob(
 
 export function summarizeDeliveries(deliveries: EmailDelivery[]) {
   const opened = deliveries.filter((d) => d.opened_at !== null).length;
+  const invalid = deliveries.filter(
+    (d) =>
+      d.status === "failed" &&
+      d.error?.includes("Invalid email address (not sent)"),
+  ).length;
   const failed = deliveries.filter(
-    (d) => d.status === "failed" || d.status === "bounced",
+    (d) =>
+      (d.status === "failed" || d.status === "bounced") &&
+      !d.error?.includes("Invalid email address (not sent)"),
   ).length;
   const sent = deliveries.filter(
     (d) =>
@@ -181,6 +207,7 @@ export function summarizeDeliveries(deliveries: EmailDelivery[]) {
     total: deliveries.length,
     sent,
     failed,
+    invalid,
     opened,
     notOpened,
   };

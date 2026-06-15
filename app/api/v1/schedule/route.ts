@@ -59,7 +59,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const job = await createEmailJob({
+    const { job, invalid } = await createEmailJob({
       tenantId: tenant.id,
       subject: parsed.data.subject,
       html: parsed.data.html,
@@ -74,6 +74,9 @@ export async function POST(request: NextRequest) {
       jobId: job.id,
       status: job.status,
       sendAt: job.send_at,
+      invalid: invalid.length,
+      ...(invalid.length > 0 ? { invalidEmails: invalid } : {}),
+      ...(job.error ? { errors: [job.error] } : {}),
     });
   } catch (error) {
     const message =

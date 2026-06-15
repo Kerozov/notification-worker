@@ -296,6 +296,101 @@
   word-break: break-word;
 }
 
+.invalidHint {
+  color: #b45309;
+  font-size: 0.78rem;
+}
+
+.actionLink {
+  color: #2563eb;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.actionLink:hover {
+  text-decoration: underline;
+}
+
+.backLink {
+  display: inline-block;
+  margin-bottom: 0.75rem;
+  color: #2563eb;
+  text-decoration: none;
+  font-size: 0.9rem;
+}
+
+.resendCard {
+  background: rgba(255, 255, 255, 0.88);
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 16px;
+  padding: 1.25rem;
+  margin-bottom: 1rem;
+}
+
+.resendMeta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.85rem 1.25rem;
+  font-size: 0.9rem;
+}
+
+.resendMeta strong {
+  display: block;
+  color: #64748b;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 0.2rem;
+}
+
+.invalidBox {
+  margin-top: 1rem;
+  padding: 0.85rem 1rem;
+  border-radius: 12px;
+  background: #fff7ed;
+  border: 1px solid #fdba74;
+  color: #9a3412;
+  font-size: 0.88rem;
+}
+
+.invalidBox ul {
+  margin: 0.5rem 0 0;
+  padding-left: 1.2rem;
+}
+
+.primaryButton {
+  margin-top: 0.75rem;
+  border: 0;
+  border-radius: 10px;
+  padding: 0.65rem 1rem;
+  background: #2563eb;
+  color: #fff;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.primaryButton:hover {
+  background: #1d4ed8;
+}
+
+.fileInput,
+.textarea {
+  display: block;
+  width: 100%;
+  margin-top: 0.5rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  padding: 0.65rem 0.75rem;
+  font: inherit;
+  background: #fff;
+}
+
+.textarea {
+  resize: vertical;
+  min-height: 140px;
+}
+
 .recipients {
   color: #475569;
   font-size: 0.82rem;

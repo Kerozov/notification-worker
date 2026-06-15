@@ -19,3 +19,19 @@ export async function getJobForTenant(
 
   return data ? asEmailJob(data) : null;
 }
+
+export async function getJobById(jobId: string): Promise<EmailJob | null> {
+  const supabase = getSupabaseAdmin();
+
+  const { data, error } = await supabase
+    .from("email_jobs")
+    .select("*")
+    .eq("id", jobId)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return data ? asEmailJob(data) : null;
+}

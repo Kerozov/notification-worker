@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getSupabaseAdmin } from "@/lib/db/supabase";
 import { hasAdminSession } from "@/lib/auth/admin";
@@ -120,11 +121,11 @@ function JobsTable({
             <th>From</th>
             <th>Subject</th>
             <th>Recipients</th>
-            <th>Sent / Failed</th>
+            <th>Sent / Failed / Invalid</th>
             <th>Opens</th>
             <th>Send at</th>
             <th>Updated</th>
-            <th>Job</th>
+            <th>Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -145,6 +146,12 @@ function JobsTable({
               </td>
               <td>
                 {job.sent_count} / {job.failed_count}
+                {job.error?.includes("Invalid addresses") ? (
+                  <span className={styles.invalidHint} title={job.error}>
+                    {" "}
+                    · invalid
+                  </span>
+                ) : null}
               </td>
               <td>
                 {openStats.get(job.id)
@@ -156,7 +163,9 @@ function JobsTable({
                 {formatDateTime(job.updated_at)}
               </td>
               <td className={styles.mono} title={job.id}>
-                {shortId(job.id)}
+                <Link className={styles.actionLink} href={`/admin/resend/${job.id}`}>
+                  Resend
+                </Link>
               </td>
             </tr>
           ))}

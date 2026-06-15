@@ -58,7 +58,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const job = await createEmailJob({
+    const { job, invalid } = await createEmailJob({
       tenantId: tenant.id,
       subject: parsed.data.subject,
       html: parsed.data.html,
@@ -70,17 +70,14 @@ export async function POST(request: NextRequest) {
     });
 
     if (job.status !== "pending") {
-      return Response.json(toJobResponse(job));
+      return Response.json(toJobResponse(job, invalid));
     }
 
     const result = await processJobById(job.id);
 
     if (!result) {
       return Response.json({
-        jobId: job.id,
-        status: job.status,
-        sent: job.sent_count,
-        failed: job.failed_count,
+        ...toJobResponse(job, invalid),
       });
     }
 
@@ -89,6 +86,8 @@ export async function POST(request: NextRequest) {
       status: result.status,
       sent: result.sent,
       failed: result.failed,
+      invalid: invalid.length,
+      ...(invalid.length > 0 ? { invalidEmails: invalid } : {}),
       ...(result.errors ? { errors: result.errors } : {}),
     });
   } catch (error) {
