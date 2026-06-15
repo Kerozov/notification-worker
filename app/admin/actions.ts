@@ -14,8 +14,11 @@ export async function runCronNow(): Promise<void> {
 
   try {
     const result = await processPendingJobs(20);
-    await recordCronRun();
     processed = result.processed;
+
+    if (processed > 0) {
+      await recordCronRun();
+    }
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Cron processing failed";

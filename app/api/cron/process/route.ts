@@ -26,7 +26,10 @@ export async function GET(request: NextRequest) {
 
   try {
     const result = await processPendingJobs(20);
-    await recordCronRun();
+
+    if (result.processed > 0) {
+      await recordCronRun();
+    }
 
     return Response.json(result);
   } catch (error) {
