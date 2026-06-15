@@ -87,7 +87,31 @@ export async function createEmailJob(
       );
 
       if (existing) {
-        return existing;
+        if (existing.status !== "pending") {
+          return existing;
+        }
+
+        const { data: updated, error: updateError } = await supabase
+          .from("email_jobs")
+          .update({
+            subject: input.subject,
+            html: input.html,
+            recipients: valid,
+            from_email: input.from ?? null,
+            reply_to: input.replyTo ?? null,
+            send_at: input.sendAt.toISOString(),
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", existing.id)
+          .eq("status", "pending")
+          .select("*")
+          .maybeSingle();
+
+        if (updateError) {
+          throw new Error(updateError.message);
+        }
+
+        return updated ? asEmailJob(updated) : existing;
       }
     }
 

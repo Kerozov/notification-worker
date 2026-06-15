@@ -26,13 +26,14 @@ type ParsedAddress = {
 };
 
 function getApiKey(): string {
-  const apiKey = process.env.ZEPTOMAIL_API_KEY;
+  const raw = process.env.ZEPTOMAIL_API_KEY?.trim();
 
-  if (!apiKey) {
+  if (!raw) {
     throw new Error("ZEPTOMAIL_API_KEY is required");
   }
 
-  return apiKey;
+  // Accept either the token alone or the full "Zoho-enczapikey ..." value from ZeptoMail.
+  return raw.replace(/^Zoho-enczapikey\s+/i, "");
 }
 
 function getApiUrl(): string {

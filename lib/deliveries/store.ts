@@ -49,7 +49,7 @@ export async function recordDeliveryResults(
   for (const result of results) {
     const status: DeliveryStatus = result.error ? "failed" : "sent";
 
-    await supabase.from("email_deliveries").upsert(
+    const { error } = await supabase.from("email_deliveries").upsert(
       {
         job_id: jobId,
         tenant_id: tenantId,
@@ -63,6 +63,12 @@ export async function recordDeliveryResults(
       },
       { onConflict: "job_id,recipient" },
     );
+
+    if (error) {
+      throw new Error(
+        `Failed to record delivery (${result.recipient}): ${error.message}. Run migrations 003 and 004 in Supabase.`,
+      );
+    }
   }
 }
 
