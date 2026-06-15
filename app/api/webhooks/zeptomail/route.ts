@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { shouldIgnoreOpenEvent } from "@/lib/deliveries/open-filter";
 import {
   markDeliveryBounced,
   markDeliveryDelivered,
@@ -13,11 +14,13 @@ type ZeptoEmailAddress = {
 type ZeptoEventDetail = {
   time?: string;
   user_agent?: string;
+  bounced_recipient?: string;
 };
 
 type ZeptoEventMessage = {
   email_info?: {
     client_reference?: string;
+    processed_time?: string;
     to?: ZeptoEmailAddress[];
   };
   event_data?: {
@@ -25,49 +28,25 @@ type ZeptoEventMessage = {
   }[];
 };
 
-// Proxies/scanners that fetch the tracking pixel automatically (at delivery time,
-// not when a human opens). They cause false "opened" events, so we ignore them.
-const AUTOMATED_OPEN_AGENTS = [
-  "googleimageproxy",
-  "google-read-aloud",
-  "yahoomailproxy",
-  "ggpht.com",
-  "bingpreview",
-  "facebookexternalhit",
-  "slackbot",
-  "whatsapp",
-  "telegrambot",
-  "twitterbot",
-  "discordbot",
-  "skypeuripreview",
-  "outlook-iossvc",
-  "microsoft office",
-  "proofpoint",
-  "barracuda",
-  "mimecast",
-  "symantec",
-  "cisco",
-];
-
-function isAutomatedOpen(userAgent: string | undefined): boolean {
-  if (!userAgent) {
-    return false;
-  }
-
-  const ua = userAgent.toLowerCase();
-  return AUTOMATED_OPEN_AGENTS.some((agent) => ua.includes(agent));
-}
-
 function firstDetail(
   message: ZeptoEventMessage,
 ): ZeptoEventDetail | undefined {
-  const details = message.event_data?.[0]?.details;
+  for (const block of message.event_data ?? []) {
+    const details = block.details;
 
-  if (Array.isArray(details)) {
-    return details[0];
+    if (Array.isArray(details)) {
+      if (details.length > 0) {
+        return details[0];
+      }
+      continue;
+    }
+
+    if (details) {
+      return details;
+    }
   }
 
-  return details;
+  return undefined;
 }
 
 type ZeptoWebhookPayload = {
@@ -106,10 +85,12 @@ function extractRecipients(message: ZeptoEventMessage): string[] {
   return recipients;
 }
 
-function classifyEvent(eventName: string): "opened" | "bounced" | "delivered" | null {
+function classifyEvent(
+  eventName: string,
+): "opened" | "bounced" | "delivered" | null {
   const name = eventName.toLowerCase();
 
-  if (name.includes("open")) {
+  if (name === "email_open" || name.endsWith("_open")) {
     return "opened";
   }
   if (name.includes("bounce")) {
@@ -152,7 +133,9 @@ export async function POST(request: NextRequest) {
   const messages = payload.event_message ?? [];
   const now = new Date().toISOString();
   let updated = 0;
-  let skipped = 0;
+  let skippedBots = 0;
+  let skippedPrefetch = 0;
+  let notFound = 0;
 
   try {
     for (const message of messages) {
@@ -163,25 +146,47 @@ export async function POST(request: NextRequest) {
       }
 
       const detail = firstDetail(message);
-      const eventTime = detail?.time ?? now;
+      const eventTime =
+        detail?.time ?? message.email_info?.processed_time ?? now;
       const recipients = extractRecipients(message);
 
-      // Ignore opens triggered by mail-provider proxies / scanners (e.g. Gmail's
-      // GoogleImageProxy) that pre-fetch the pixel before a human reads the mail.
-      if (kind === "opened" && isAutomatedOpen(detail?.user_agent)) {
-        skipped += recipients.length;
+      if (recipients.length === 0) {
         continue;
       }
 
       for (const recipient of recipients) {
         if (kind === "opened") {
-          await markDeliveryOpened(jobId, recipient, eventTime);
+          const ignoreReason = await shouldIgnoreOpenEvent(
+            jobId,
+            recipient,
+            eventTime,
+            detail?.user_agent,
+          );
+
+          if (ignoreReason === "bot") {
+            skippedBots += 1;
+            continue;
+          }
+
+          if (ignoreReason === "prefetch") {
+            skippedPrefetch += 1;
+            continue;
+          }
+
+          const marked = await markDeliveryOpened(jobId, recipient, eventTime);
+
+          if (marked) {
+            updated += 1;
+          } else {
+            notFound += 1;
+          }
         } else if (kind === "bounced") {
           await markDeliveryBounced(jobId, recipient, "Email bounced");
+          updated += 1;
         } else if (kind === "delivered") {
           await markDeliveryDelivered(jobId, recipient, eventTime);
+          updated += 1;
         }
-        updated += 1;
       }
     }
   } catch (error) {
@@ -190,5 +195,12 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: message }, { status: 500 });
   }
 
-  return Response.json({ ok: true, kind, updated, skipped });
+  return Response.json({
+    ok: true,
+    kind,
+    updated,
+    skippedBots,
+    skippedPrefetch,
+    notFound,
+  });
 }

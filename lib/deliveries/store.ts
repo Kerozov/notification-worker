@@ -101,10 +101,10 @@ export async function markDeliveryOpened(
   jobId: string,
   recipient: string,
   openedAt: string,
-): Promise<void> {
+): Promise<boolean> {
   const supabase = getSupabaseAdmin();
 
-  await supabase
+  const { data, error } = await supabase
     .from("email_deliveries")
     .update({
       status: "opened",
@@ -113,7 +113,15 @@ export async function markDeliveryOpened(
     })
     .eq("job_id", jobId)
     .eq("recipient", normalizeEmail(recipient))
-    .is("opened_at", null);
+    .is("opened_at", null)
+    .select("id")
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return Boolean(data);
 }
 
 export async function markDeliveryBounced(
