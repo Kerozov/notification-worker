@@ -29,6 +29,20 @@ type TenantRow = {
   created_at: string;
 };
 
+type SmsJobRow = {
+  id: string;
+  tenant_id: string;
+  status: string;
+  body: string;
+  sender: string | null;
+  recipients: string[];
+  sent_count: number;
+  failed_count: number;
+  error: string | null;
+  send_at: string;
+  updated_at: string;
+};
+
 type JobRow = {
   id: string;
   tenant_id: string;
@@ -287,6 +301,19 @@ export default async function AdminPage({
   ];
   const deliveryStats = await getDeliveryStatsByJobIds(allTableJobIds);
 
+  let recentSmsJobs: SmsJobRow[] = [];
+  const smsResult = await supabase
+    .from("sms_jobs")
+    .select(
+      "id, tenant_id, status, body, sender, recipients, sent_count, failed_count, error, send_at, updated_at",
+    )
+    .order("created_at", { ascending: false })
+    .limit(20);
+
+  if (!smsResult.error) {
+    recentSmsJobs = (smsResult.data ?? []) as SmsJobRow[];
+  }
+
   return (
     <main className={styles.adminPage}>
       <div className={styles.shell}>
@@ -413,6 +440,62 @@ export default async function AdminPage({
             deliveryStats={deliveryStats}
             emptyMessage="No jobs yet."
           />
+        </section>
+
+        <section className={styles.section}>
+          <div className={styles.sectionHeader}>
+            <div>
+              <h2 className={styles.sectionTitle}>Recent SMS jobs</h2>
+              <p className={styles.sectionHint}>
+                Latest 20 SMS jobs via Notifier
+              </p>
+            </div>
+          </div>
+          {recentSmsJobs.length === 0 ? (
+            <div className={styles.empty}>
+              No SMS jobs yet. Run migration 006_sms.sql if the table is missing.
+            </div>
+          ) : (
+            <div className={styles.tableWrap}>
+              <table className={styles.table}>
+                <thead>
+                  <tr>
+                    <th>Status</th>
+                    <th>Tenant</th>
+                    <th>Sender</th>
+                    <th>Message</th>
+                    <th>Recipients</th>
+                    <th>Sent</th>
+                    <th>Failed</th>
+                    <th>Send at</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {recentSmsJobs.map((job) => (
+                    <tr key={job.id}>
+                      <td>
+                        <StatusBadge status={job.status} />
+                      </td>
+                      <td>
+                        {tenantIdToSlug.get(job.tenant_id) ??
+                          shortId(job.tenant_id)}
+                      </td>
+                      <td>{job.sender ?? "—"}</td>
+                      <td className={styles.truncate} title={job.body}>
+                        {job.body}
+                      </td>
+                      <td className={styles.recipients}>
+                        {formatRecipients(job.recipients)}
+                      </td>
+                      <td>{job.sent_count}</td>
+                      <td>{job.failed_count}</td>
+                      <td>{formatDateTime(job.send_at)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </section>
 
         <section className={styles.section}>

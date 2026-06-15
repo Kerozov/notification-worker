@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { hasAdminSession } from "@/lib/auth/admin";
 import { processPendingJobs, recordCronRun } from "@/lib/jobs/process";
+import { processPendingSmsJobs } from "@/lib/jobs/process-sms";
 import { resendJobAsNew } from "@/lib/jobs/resend";
 import {
   parseRecipientsFromFile,
@@ -48,8 +49,11 @@ export async function runCronNow(): Promise<void> {
   let processed = 0;
 
   try {
-    const result = await processPendingJobs(20);
-    processed = result.processed;
+    const [email, sms] = await Promise.all([
+      processPendingJobs(20),
+      processPendingSmsJobs(20),
+    ]);
+    processed = email.processed + sms.processed;
 
     if (processed > 0) {
       await recordCronRun();

@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { processPendingJobs, recordCronRun } from "@/lib/jobs/process";
+import { processPendingSmsJobs } from "@/lib/jobs/process-sms";
 
 function unauthorizedResponse() {
   return Response.json({ error: "Unauthorized" }, { status: 401 });
@@ -25,13 +26,22 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const result = await processPendingJobs(20);
+    const [email, sms] = await Promise.all([
+      processPendingJobs(20),
+      processPendingSmsJobs(20),
+    ]);
 
-    if (result.processed > 0) {
+    const processed = email.processed + sms.processed;
+
+    if (processed > 0) {
       await recordCronRun();
     }
 
-    return Response.json(result);
+    return Response.json({
+      processed,
+      email,
+      sms,
+    });
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Cron processing failed";

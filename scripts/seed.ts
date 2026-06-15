@@ -11,6 +11,8 @@ type SeedTenant = {
   apiKey: string;
   defaultFrom?: string;
   defaultReplyTo?: string;
+  defaultSmsSender?: string;
+  notifierApiKey?: string;
 };
 
 function envSuffixToSlug(suffix: string): string {
@@ -40,6 +42,8 @@ function discoverTenantsFromEnv(): SeedTenant[] {
     const name = process.env[`TENANT_${suffix}_NAME`]?.trim() || slugToName(slug);
     const defaultFrom = process.env[`TENANT_${suffix}_FROM`]?.trim();
     const defaultReplyTo = process.env[`TENANT_${suffix}_REPLY_TO`]?.trim();
+    const defaultSmsSender = process.env[`TENANT_${suffix}_SMS_SENDER`]?.trim();
+    const notifierApiKey = process.env[`TENANT_${suffix}_NOTIFIER_KEY`]?.trim();
 
     tenants.push({
       slug,
@@ -47,6 +51,8 @@ function discoverTenantsFromEnv(): SeedTenant[] {
       apiKey: apiKey.trim(),
       defaultFrom,
       defaultReplyTo,
+      defaultSmsSender,
+      notifierApiKey,
     });
   }
 
@@ -75,6 +81,8 @@ async function seedTenant(input: SeedTenant): Promise<void> {
         api_key_hash: apiKeyHash,
         default_from: input.defaultFrom ?? null,
         default_reply_to: input.defaultReplyTo ?? null,
+        default_sms_sender: input.defaultSmsSender ?? null,
+        notifier_api_key: input.notifierApiKey ?? null,
       })
       .eq("id", existing.id);
 
@@ -92,6 +100,8 @@ async function seedTenant(input: SeedTenant): Promise<void> {
     api_key_hash: apiKeyHash,
     default_from: input.defaultFrom ?? null,
     default_reply_to: input.defaultReplyTo ?? null,
+    default_sms_sender: input.defaultSmsSender ?? null,
+    notifier_api_key: input.notifierApiKey ?? null,
   });
 
   if (insertError) {

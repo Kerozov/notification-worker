@@ -7,6 +7,8 @@ export type Tenant = {
   api_key_hash: string;
   default_from: string | null;
   default_reply_to: string | null;
+  default_sms_sender: string | null;
+  notifier_api_key: string | null;
   created_at: string;
 };
 
@@ -28,6 +30,30 @@ export type EmailJob = {
   recipients: string[];
   from_email: string | null;
   reply_to: string | null;
+  sent_count: number;
+  failed_count: number;
+  error: string | null;
+  created_at: string;
+  updated_at: string;
+  sent_at: string | null;
+};
+
+export type SmsJobStatus =
+  | "pending"
+  | "processing"
+  | "sent"
+  | "failed"
+  | "canceled";
+
+export type SmsJob = {
+  id: string;
+  tenant_id: string;
+  idempotency_key: string | null;
+  status: SmsJobStatus;
+  send_at: string;
+  body: string;
+  recipients: string[];
+  sender: string | null;
   sent_count: number;
   failed_count: number;
   error: string | null;
@@ -60,6 +86,10 @@ export function getSupabaseAdmin(): SupabaseClient {
 
 export function asEmailJob(row: Record<string, unknown>): EmailJob {
   return row as unknown as EmailJob;
+}
+
+export function asSmsJob(row: Record<string, unknown>): SmsJob {
+  return row as unknown as SmsJob;
 }
 
 export function asTenant(row: Record<string, unknown>): Tenant {
