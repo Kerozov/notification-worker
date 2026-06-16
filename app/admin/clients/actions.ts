@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { stashRevealedApiKey } from "@/lib/auth/admin-flash";
 import { hasAdminSession } from "@/lib/auth/admin";
 import {
   createTenant,
@@ -30,8 +31,11 @@ export async function createClientAction(formData: FormData): Promise<void> {
   const slug = normalizeTenantSlug(String(formData.get("slug") ?? ""));
   const name = String(formData.get("name") ?? "").trim();
 
+  let apiKey: string | null = null;
+  let errorMessage: string | null = null;
+
   try {
-    const { apiKey } = await createTenant({
+    const result = await createTenant({
       slug,
       name,
       defaultFrom: String(formData.get("defaultFrom") ?? ""),
@@ -39,18 +43,30 @@ export async function createClientAction(formData: FormData): Promise<void> {
       defaultSmsSender: String(formData.get("defaultSmsSender") ?? ""),
       notifierApiKey: String(formData.get("notifierApiKey") ?? ""),
     });
-
-    revalidatePath("/admin");
-    revalidatePath("/admin/clients");
-    clientsRedirect(`/admin/clients/${slug}`, {
-      saved: "1",
-      apiKey,
-    });
+    apiKey = result.apiKey;
   } catch (error) {
-    const message =
+    errorMessage =
       error instanceof Error ? error.message : "Failed to create client";
-    clientsRedirect("/admin/clients/new", { error: message });
   }
+
+  if (errorMessage) {
+    clientsRedirect("/admin/clients/new", { error: errorMessage });
+  }
+
+  if (!apiKey || !slug) {
+    clientsRedirect("/admin/clients/new", {
+      error: "Client was created but API key was missing — try rotating the key",
+    });
+  }
+
+  await stashRevealedApiKey(apiKey);
+
+  revalidatePath("/admin");
+  revalidatePath("/admin/clients");
+  clientsRedirect(`/admin/clients/${slug}`, {
+    saved: "1",
+    reveal: "1",
+  });
 }
 
 export async function updateClientAction(formData: FormData): Promise<void> {
@@ -62,6 +78,8 @@ export async function updateClientAction(formData: FormData): Promise<void> {
     clientsRedirect("/admin/clients", { error: "missing-client" });
   }
 
+  let errorMessage: string | null = null;
+
   try {
     await updateTenant(slug, {
       name: String(formData.get("name") ?? ""),
@@ -71,16 +89,19 @@ export async function updateClientAction(formData: FormData): Promise<void> {
       notifierApiKey: String(formData.get("notifierApiKey") ?? ""),
       clearNotifierKey: formData.get("clearNotifierKey") === "on",
     });
-
-    revalidatePath("/admin");
-    revalidatePath("/admin/clients");
-    revalidatePath(`/admin/clients/${slug}`);
-    clientsRedirect(`/admin/clients/${slug}`, { saved: "1" });
   } catch (error) {
-    const message =
+    errorMessage =
       error instanceof Error ? error.message : "Failed to update client";
-    clientsRedirect(`/admin/clients/${slug}`, { error: message });
   }
+
+  if (errorMessage) {
+    clientsRedirect(`/admin/clients/${slug}`, { error: errorMessage });
+  }
+
+  revalidatePath("/admin");
+  revalidatePath("/admin/clients");
+  revalidatePath(`/admin/clients/${slug}`);
+  clientsRedirect(`/admin/clients/${slug}`, { saved: "1" });
 }
 
 export async function rotateClientApiKeyAction(
@@ -94,19 +115,34 @@ export async function rotateClientApiKeyAction(
     clientsRedirect("/admin/clients", { error: "missing-client" });
   }
 
-  try {
-    const { apiKey } = await rotateTenantApiKey(slug);
+  let apiKey: string | null = null;
+  let errorMessage: string | null = null;
 
-    revalidatePath("/admin");
-    revalidatePath("/admin/clients");
-    revalidatePath(`/admin/clients/${slug}`);
-    clientsRedirect(`/admin/clients/${slug}`, {
-      saved: "1",
-      apiKey,
-    });
+  try {
+    const result = await rotateTenantApiKey(slug);
+    apiKey = result.apiKey;
   } catch (error) {
-    const message =
+    errorMessage =
       error instanceof Error ? error.message : "Failed to rotate API key";
-    clientsRedirect(`/admin/clients/${slug}`, { error: message });
   }
+
+  if (errorMessage) {
+    clientsRedirect(`/admin/clients/${slug}`, { error: errorMessage });
+  }
+
+  if (!apiKey) {
+    clientsRedirect(`/admin/clients/${slug}`, {
+      error: "Failed to generate API key",
+    });
+  }
+
+  await stashRevealedApiKey(apiKey);
+
+  revalidatePath("/admin");
+  revalidatePath("/admin/clients");
+  revalidatePath(`/admin/clients/${slug}`);
+  clientsRedirect(`/admin/clients/${slug}`, {
+    saved: "1",
+    reveal: "1",
+  });
 }

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
+import { takeRevealedApiKey } from "@/lib/auth/admin-flash";
 import { hasAdminSession } from "@/lib/auth/admin";
 import { getTenantBySlug } from "@/lib/tenants/store";
 import styles from "../../admin.module.css";
@@ -9,7 +10,7 @@ import { ApiKeyReveal, ClientForm, RotateApiKeyForm } from "../client-forms";
 type SearchParams = Promise<{
   error?: string;
   saved?: string;
-  apiKey?: string;
+  reveal?: string;
 }>;
 
 export default async function EditClientPage({
@@ -33,9 +34,8 @@ export default async function EditClientPage({
 
   const flashError = query.error ? decodeURIComponent(query.error) : null;
   const saved = query.saved === "1";
-  const revealedApiKey = query.apiKey
-    ? decodeURIComponent(query.apiKey)
-    : null;
+  const revealedApiKey =
+    query.reveal === "1" ? await takeRevealedApiKey() : null;
   const workerUrl =
     process.env.WORKER_URL?.trim() ||
     "https://notification-worker-phi.vercel.app";

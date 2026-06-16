@@ -88,21 +88,30 @@ export async function cancelScheduledEmailJob(formData: FormData): Promise<void>
     adminRedirect(channel, { error: "missing-job" });
   }
 
+  let errorMessage: string | null = null;
+  let canceled = false;
+
   try {
     const job = await cancelPendingJobById(jobId);
 
     if (!job) {
-      adminRedirect(channel, {
-        error: "Job not found or already sent — only pending jobs can be canceled",
-      });
+      errorMessage =
+        "Job not found or already sent — only pending jobs can be canceled";
+    } else {
+      canceled = true;
     }
+  } catch (error) {
+    errorMessage =
+      error instanceof Error ? error.message : "Failed to cancel email job";
+  }
 
+  if (errorMessage) {
+    adminRedirect(channel, { error: errorMessage });
+  }
+
+  if (canceled) {
     revalidatePath("/admin");
     adminRedirect(channel, { canceled: "email" });
-  } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Failed to cancel email job";
-    adminRedirect(channel, { error: message });
   }
 }
 
@@ -116,21 +125,30 @@ export async function cancelScheduledSmsJob(formData: FormData): Promise<void> {
     adminRedirect(channel, { error: "missing-job" });
   }
 
+  let errorMessage: string | null = null;
+  let canceled = false;
+
   try {
     const job = await cancelPendingSmsJobById(jobId);
 
     if (!job) {
-      adminRedirect(channel, {
-        error: "Job not found or already sent — only pending jobs can be canceled",
-      });
+      errorMessage =
+        "Job not found or already sent — only pending jobs can be canceled";
+    } else {
+      canceled = true;
     }
+  } catch (error) {
+    errorMessage =
+      error instanceof Error ? error.message : "Failed to cancel SMS job";
+  }
 
+  if (errorMessage) {
+    adminRedirect(channel, { error: errorMessage });
+  }
+
+  if (canceled) {
     revalidatePath("/admin");
     adminRedirect(channel, { canceled: "sms" });
-  } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Failed to cancel SMS job";
-    adminRedirect(channel, { error: message });
   }
 }
 
