@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "seed": "bun scripts/seed.ts",
-  "diagnose:sms": "bun scripts/diagnose-sms.ts",
+    "tenant:new": "bun scripts/new-tenant.ts",
+    "diagnose:sms": "bun scripts/diagnose-sms.ts",
     "migrate": "bun scripts/migrate.ts",
     "trigger:dev": "bunx trigger.dev@latest dev",
     "trigger:deploy": "bunx trigger.dev@latest deploy"

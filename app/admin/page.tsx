@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getSupabaseAdmin } from "@/lib/db/supabase";
 import { hasAdminSession } from "@/lib/auth/admin";
@@ -5,6 +6,7 @@ import { getDeliveryStatsByJobIds } from "@/lib/deliveries/stats";
 import { runCronNow } from "./actions";
 import styles from "./admin.module.css";
 import { formatDateTime, formatRelative } from "./components";
+import { AdminNav } from "./nav";
 import {
   ChannelNav,
   ChannelOverview,
@@ -235,6 +237,8 @@ export default async function AdminPage({
           </div>
         </header>
 
+        <AdminNav active="dashboard" />
+
         <ChannelNav
           active={channel}
           emailPending={pendingEmail.length}
@@ -434,6 +438,11 @@ export default async function AdminPage({
         ) : null}
 
         <SectionBlock title="Clients" hint="Tenants and channel configuration">
+          <p className={styles.clientsSectionLink}>
+            <Link className={styles.actionLink} href="/admin/clients">
+              Manage clients →
+            </Link>
+          </p>
           <TenantsGrid
             tenants={tenants}
             emailJobs24h={email24h}

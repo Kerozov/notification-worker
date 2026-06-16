@@ -700,6 +700,173 @@
   background: #1d4ed8;
 }
 
+.primaryButtonLink {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 10px;
+  padding: 0.65rem 1rem;
+  background: #2563eb;
+  color: #fff;
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.primaryButtonLink:hover {
+  background: #1d4ed8;
+}
+
+.adminNav {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.adminNavLink {
+  display: inline-flex;
+  padding: 0.5rem 0.95rem;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: rgba(255, 255, 255, 0.75);
+  color: #475569;
+  font-size: 0.88rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.adminNavLink:hover {
+  border-color: rgba(59, 130, 246, 0.45);
+  color: #1e40af;
+}
+
+.adminNavLinkActive {
+  background: #0f172a;
+  border-color: #0f172a;
+  color: #f8fafc;
+}
+
+.adminNavLinkActive:hover {
+  background: #1e293b;
+  color: #f8fafc;
+}
+
+.clientsSectionLink {
+  margin: 0 0 1rem;
+  font-size: 0.88rem;
+}
+
+.clientForm {
+  margin: 0;
+}
+
+.formGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem 1.25rem;
+}
+
+.formField {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.formFieldWide {
+  grid-column: 1 / -1;
+}
+
+.formLabel {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #64748b;
+}
+
+.formInput {
+  width: 100%;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  padding: 0.65rem 0.75rem;
+  font: inherit;
+  background: #fff;
+}
+
+.formHint {
+  font-size: 0.78rem;
+  color: #64748b;
+}
+
+.formReadonly {
+  padding: 0.65rem 0.75rem;
+  border-radius: 10px;
+  background: #f1f5f9;
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 0.88rem;
+}
+
+.formCheckbox {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.84rem;
+  color: #475569;
+  margin-top: 0.25rem;
+}
+
+.formActions {
+  margin-top: 1.25rem;
+}
+
+.rotateKeyForm {
+  margin: 0;
+}
+
+.rotateKeyHint {
+  margin: 0 0 0.75rem;
+  font-size: 0.85rem;
+  color: #64748b;
+}
+
+.apiKeyReveal {
+  margin-bottom: 1.25rem;
+  padding: 1.1rem 1.2rem;
+  border-radius: 14px;
+  border: 1px solid rgba(34, 197, 94, 0.35);
+  background: rgba(220, 252, 231, 0.9);
+  color: #14532d;
+}
+
+.apiKeyRevealTitle {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.apiKeyRevealHint {
+  margin: 0.35rem 0 0.75rem;
+  font-size: 0.85rem;
+}
+
+.apiKeyRevealMeta {
+  margin: 0.75rem 0 0;
+  font-size: 0.82rem;
+}
+
+.apiKeyBox {
+  padding: 0.75rem 0.85rem;
+  border-radius: 10px;
+  background: #fff;
+  border: 1px solid rgba(34, 197, 94, 0.25);
+  word-break: break-all;
+}
+
+.apiKeyBox code {
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 0.82rem;
+}
+
 .fileInput,
 .textarea {
   display: block;
@@ -751,7 +918,8 @@
 
 @media (max-width: 960px) {
   .channelOverview,
-  .splitGrid {
+  .splitGrid,
+  .formGrid {
     grid-template-columns: 1fr;
   }
 
@@ -904,5 +1072,39 @@
 
   .cancelButton:hover {
     background: rgba(127, 29, 29, 0.55);
+  }
+
+  .adminNavLink {
+    background: rgba(15, 23, 42, 0.55);
+    border-color: rgba(148, 163, 184, 0.22);
+    color: #cbd5e1;
+  }
+
+  .adminNavLinkActive {
+    background: #2563eb;
+    border-color: #2563eb;
+    color: #f8fafc;
+  }
+
+  .formInput {
+    background: rgba(15, 23, 42, 0.55);
+    border-color: rgba(148, 163, 184, 0.22);
+    color: #f8fafc;
+  }
+
+  .formReadonly {
+    background: rgba(30, 41, 59, 0.85);
+    color: #e2e8f0;
+  }
+
+  .apiKeyReveal {
+    background: rgba(20, 83, 45, 0.45);
+    border-color: rgba(74, 222, 128, 0.35);
+    color: #bbf7d0;
+  }
+
+  .apiKeyBox {
+    background: rgba(15, 23, 42, 0.55);
+    border-color: rgba(74, 222, 128, 0.25);
   }
 }

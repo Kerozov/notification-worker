@@ -403,7 +403,14 @@ export function TenantsGrid({
   smsJobs24h: SmsJobRow[];
 }) {
   if (tenants.length === 0) {
-    return <div className={styles.empty}>No tenants yet. Run `bun run seed`.</div>;
+    return (
+      <div className={styles.empty}>
+        No clients yet.{" "}
+        <Link className={styles.actionLink} href="/admin/clients/new">
+          Add a client
+        </Link>
+      </div>
+    );
   }
 
   return (
@@ -446,6 +453,12 @@ export function TenantsGrid({
               <span className={styles.tenantStat}>
                 💬 {smsJobs.length} SMS
               </span>
+              <Link
+                className={styles.actionLink}
+                href={`/admin/clients/${tenant.slug}`}
+              >
+                Edit →
+              </Link>
             </div>
           </div>
         );
