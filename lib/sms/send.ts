@@ -43,7 +43,7 @@ function normalizeNotifierApiKey(raw: string): string {
 }
 
 function getApiUrl(): string {
-  return process.env.NOTIFIER_API_URL?.trim() || NOTIFIER_BULK_URL;
+  return process.env.NOTIFIER_API_URL?.trim() || NOTIFIER_GHL_URL;
 }
 
 /** Notifier.bg GoHighLevel integration (used by funnel svetoslava). */

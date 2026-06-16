@@ -2,6 +2,10 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import styles from "./admin.module.css";
 import {
+  cancelScheduledEmailJob,
+  cancelScheduledSmsJob,
+} from "./actions";
+import {
   formatDateTime,
   formatRecipients,
   formatRelative,
@@ -190,18 +194,45 @@ function engagementLine(counts: ReturnType<typeof getJobDisplayCounts>): string 
   return `${counts.opened} open · ${counts.clicked} click · ${counts.complained} spam`;
 }
 
+function CancelJobForm({
+  jobId,
+  channel,
+  kind,
+}: {
+  jobId: string;
+  channel: ChannelView;
+  kind: "email" | "sms";
+}) {
+  const action =
+    kind === "email" ? cancelScheduledEmailJob : cancelScheduledSmsJob;
+
+  return (
+    <form className={styles.cancelForm} action={action}>
+      <input type="hidden" name="jobId" value={jobId} />
+      <input type="hidden" name="channel" value={channel} />
+      <button className={styles.cancelButton} type="submit">
+        Cancel
+      </button>
+    </form>
+  );
+}
+
 export function EmailJobsTable({
   jobs,
   tenantIdToSlug,
   deliveryStats,
   emptyMessage,
   compact = false,
+  showCancel = false,
+  channel = "all",
 }: {
   jobs: EmailJobRow[];
   tenantIdToSlug: Map<string, string>;
   deliveryStats: Map<string, JobDeliveryStats>;
   emptyMessage: string;
   compact?: boolean;
+  showCancel?: boolean;
+  channel?: ChannelView;
 }) {
   if (jobs.length === 0) {
     return <div className={styles.empty}>{emptyMessage}</div>;
@@ -220,7 +251,7 @@ export function EmailJobsTable({
             <th>Delivery</th>
             {!compact ? <th>Engagement</th> : null}
             <th>When</th>
-            {!compact ? <th></th> : null}
+            {showCancel || !compact ? <th></th> : null}
           </tr>
         </thead>
         <tbody>
@@ -257,14 +288,23 @@ export function EmailJobsTable({
                     {formatDateTime(job.send_at)}
                   </span>
                 </td>
-                {!compact ? (
-                  <td>
-                    <Link
-                      className={styles.actionLink}
-                      href={`/admin/resend/${job.id}`}
-                    >
-                      Resend
-                    </Link>
+                {showCancel || !compact ? (
+                  <td className={styles.actionsCell}>
+                    {showCancel && job.status === "pending" ? (
+                      <CancelJobForm
+                        jobId={job.id}
+                        channel={channel}
+                        kind="email"
+                      />
+                    ) : null}
+                    {!compact && !showCancel ? (
+                      <Link
+                        className={styles.actionLink}
+                        href={`/admin/resend/${job.id}`}
+                      >
+                        Resend
+                      </Link>
+                    ) : null}
                   </td>
                 ) : null}
               </tr>
@@ -281,11 +321,15 @@ export function SmsJobsTable({
   tenantIdToSlug,
   emptyMessage,
   compact = false,
+  showCancel = false,
+  channel = "all",
 }: {
   jobs: SmsJobRow[];
   tenantIdToSlug: Map<string, string>;
   emptyMessage: string;
   compact?: boolean;
+  showCancel?: boolean;
+  channel?: ChannelView;
 }) {
   if (jobs.length === 0) {
     return <div className={styles.empty}>{emptyMessage}</div>;
@@ -304,6 +348,7 @@ export function SmsJobsTable({
             <th>Result</th>
             {!compact ? <th>Error</th> : null}
             <th>When</th>
+            {showCancel ? <th></th> : null}
           </tr>
         </thead>
         <tbody>
@@ -329,6 +374,17 @@ export function SmsJobsTable({
                 <td className={styles.errorText}>{job.error ?? "—"}</td>
               ) : null}
               <td className={styles.timeCell}>{formatDateTime(job.send_at)}</td>
+              {showCancel ? (
+                <td className={styles.actionsCell}>
+                  {job.status === "pending" ? (
+                    <CancelJobForm
+                      jobId={job.id}
+                      channel={channel}
+                      kind="sms"
+                    />
+                  ) : null}
+                </td>
+              ) : null}
             </tr>
           ))}
         </tbody>

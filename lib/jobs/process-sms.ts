@@ -425,6 +425,30 @@ export async function cancelPendingSmsJob(
   return data ? asSmsJob(data) : null;
 }
 
+/** Admin: cancel any tenant's pending SMS job by id. */
+export async function cancelPendingSmsJobById(
+  jobId: string,
+): Promise<SmsJob | null> {
+  const supabase = getSupabaseAdmin();
+
+  const { data, error } = await supabase
+    .from("sms_jobs")
+    .update({
+      status: "canceled",
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", jobId)
+    .eq("status", "pending")
+    .select("*")
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return data ? asSmsJob(data) : null;
+}
+
 export function toSmsJobResponse(job: SmsJob, invalid: string[] = []) {
   const sent = job.sent_count;
   const failed = job.failed_count;

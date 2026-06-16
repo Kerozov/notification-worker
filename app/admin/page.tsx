@@ -23,6 +23,7 @@ type SearchParams = Promise<{
   secret?: string;
   error?: string;
   cronProcessed?: string;
+  canceled?: string;
   channel?: string;
 }>;
 
@@ -80,6 +81,7 @@ export default async function AdminPage({
   const params = await searchParams;
   const channel = parseChannel(params.channel);
   const flashError = params.error ? decodeURIComponent(params.error) : null;
+  const canceled = params.canceled;
   const cronProcessed = params.cronProcessed
     ? Number(params.cronProcessed)
     : null;
@@ -243,6 +245,12 @@ export default async function AdminPage({
           <section className={styles.errorBanner}>{flashError}</section>
         ) : null}
 
+        {canceled === "email" || canceled === "sms" ? (
+          <section className={styles.successBanner}>
+            Scheduled {canceled === "email" ? "email" : "SMS"} canceled.
+          </section>
+        ) : null}
+
         {cronProcessed !== null && !Number.isNaN(cronProcessed) ? (
           <section className={styles.successBanner}>
             Queues processed. Handled {cronProcessed} job(s).
@@ -305,6 +313,8 @@ export default async function AdminPage({
                 deliveryStats={deliveryStats}
                 emptyMessage="No pending email jobs."
                 compact
+                showCancel
+                channel={channel}
               />
             </SectionBlock>
             <SectionBlock
@@ -322,6 +332,8 @@ export default async function AdminPage({
                     : "No pending SMS jobs."
                 }
                 compact
+                showCancel
+                channel={channel}
               />
             </SectionBlock>
           </div>
@@ -339,6 +351,8 @@ export default async function AdminPage({
               tenantIdToSlug={tenantIdToSlug}
               deliveryStats={deliveryStats}
               emptyMessage="No pending email jobs."
+              showCancel
+              channel={channel}
             />
           </SectionBlock>
         ) : null}
@@ -354,6 +368,8 @@ export default async function AdminPage({
               jobs={pendingSms}
               tenantIdToSlug={tenantIdToSlug}
               emptyMessage="No pending SMS jobs."
+              showCancel
+              channel={channel}
             />
           </SectionBlock>
         ) : null}

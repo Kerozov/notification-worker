@@ -434,6 +434,30 @@ export async function cancelPendingJob(
   return data ? asEmailJob(data) : null;
 }
 
+/** Admin: cancel any tenant's pending email job by id. */
+export async function cancelPendingJobById(
+  jobId: string,
+): Promise<EmailJob | null> {
+  const supabase = getSupabaseAdmin();
+
+  const { data, error } = await supabase
+    .from("email_jobs")
+    .update({
+      status: "canceled",
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", jobId)
+    .eq("status", "pending")
+    .select("*")
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return data ? asEmailJob(data) : null;
+}
+
 export async function recordCronRun(): Promise<void> {
   const supabase = getSupabaseAdmin();
 

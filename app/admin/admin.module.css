@@ -613,6 +613,30 @@
   text-decoration: underline;
 }
 
+.actionsCell {
+  white-space: nowrap;
+}
+
+.cancelForm {
+  margin: 0;
+  display: inline;
+}
+
+.cancelButton {
+  border: 1px solid rgba(239, 68, 68, 0.45);
+  border-radius: 8px;
+  padding: 0.3rem 0.55rem;
+  background: #fff;
+  color: #b91c1c;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.cancelButton:hover {
+  background: #fef2f2;
+}
+
 .backLink {
   display: inline-block;
   margin-bottom: 0.75rem;
@@ -870,5 +894,15 @@
     background: rgba(20, 83, 45, 0.45);
     border-color: rgba(74, 222, 128, 0.35);
     color: #bbf7d0;
+  }
+
+  .cancelButton {
+    background: rgba(127, 29, 29, 0.35);
+    border-color: rgba(248, 113, 113, 0.35);
+    color: #fecaca;
+  }
+
+  .cancelButton:hover {
+    background: rgba(127, 29, 29, 0.55);
   }
 }

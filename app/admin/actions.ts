@@ -3,8 +3,8 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { hasAdminSession } from "@/lib/auth/admin";
-import { processPendingJobs, recordCronRun } from "@/lib/jobs/process";
-import { processPendingSmsJobs } from "@/lib/jobs/process-sms";
+import { processPendingJobs, recordCronRun, cancelPendingJobById } from "@/lib/jobs/process";
+import { processPendingSmsJobs, cancelPendingSmsJobById } from "@/lib/jobs/process-sms";
 import { resendJobAsNew } from "@/lib/jobs/resend";
 import {
   parseRecipientsFromFile,
@@ -66,6 +66,72 @@ export async function runCronNow(): Promise<void> {
 
   revalidatePath("/admin");
   redirect(`/admin?cronProcessed=${processed}`);
+}
+
+function adminRedirect(channel: string, params: Record<string, string>): void {
+  const search = new URLSearchParams(params);
+
+  if (channel !== "all") {
+    search.set("channel", channel);
+  }
+
+  redirect(`/admin?${search.toString()}`);
+}
+
+export async function cancelScheduledEmailJob(formData: FormData): Promise<void> {
+  await requireAdmin();
+
+  const jobId = String(formData.get("jobId") ?? "");
+  const channel = String(formData.get("channel") ?? "all");
+
+  if (!jobId) {
+    adminRedirect(channel, { error: "missing-job" });
+  }
+
+  try {
+    const job = await cancelPendingJobById(jobId);
+
+    if (!job) {
+      adminRedirect(channel, {
+        error: "Job not found or already sent — only pending jobs can be canceled",
+      });
+    }
+
+    revalidatePath("/admin");
+    adminRedirect(channel, { canceled: "email" });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Failed to cancel email job";
+    adminRedirect(channel, { error: message });
+  }
+}
+
+export async function cancelScheduledSmsJob(formData: FormData): Promise<void> {
+  await requireAdmin();
+
+  const jobId = String(formData.get("jobId") ?? "");
+  const channel = String(formData.get("channel") ?? "all");
+
+  if (!jobId) {
+    adminRedirect(channel, { error: "missing-job" });
+  }
+
+  try {
+    const job = await cancelPendingSmsJobById(jobId);
+
+    if (!job) {
+      adminRedirect(channel, {
+        error: "Job not found or already sent — only pending jobs can be canceled",
+      });
+    }
+
+    revalidatePath("/admin");
+    adminRedirect(channel, { canceled: "sms" });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Failed to cancel SMS job";
+    adminRedirect(channel, { error: message });
+  }
 }
 
 export async function resendSameRecipients(formData: FormData): Promise<void> {
