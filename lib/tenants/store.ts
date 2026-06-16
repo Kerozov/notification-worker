@@ -61,25 +61,42 @@ function emptyToNull(value: string | undefined | null): string | null {
 export async function listTenantsForAdmin(): Promise<TenantAdminRow[]> {
   const supabase = getSupabaseAdmin();
 
-  const { data, error } = await supabase
+  const full = await supabase
     .from("tenants")
     .select(
       "id, slug, name, default_from, default_reply_to, default_sms_sender, notifier_api_key, created_at",
     )
     .order("name");
 
-  if (error) {
-    throw new Error(error.message);
+  const result =
+    full.error &&
+    (full.error.code === "42703" ||
+      full.error.message.includes("notifier_api_key") ||
+      full.error.message.includes("default_sms_sender"))
+      ? await supabase
+          .from("tenants")
+          .select("id, slug, name, default_from, default_reply_to, created_at")
+          .order("name")
+      : full;
+
+  if (result.error) {
+    throw new Error(result.error.message);
   }
 
-  return (data ?? []).map((row) => ({
+  return (result.data ?? []).map((row) => ({
     id: row.id as string,
     slug: row.slug as string,
     name: row.name as string,
     default_from: row.default_from as string | null,
     default_reply_to: row.default_reply_to as string | null,
-    default_sms_sender: row.default_sms_sender as string | null,
-    notifier_configured: Boolean(row.notifier_api_key),
+    default_sms_sender:
+      "default_sms_sender" in row
+        ? (row.default_sms_sender as string | null)
+        : null,
+    notifier_configured:
+      "notifier_api_key" in row
+        ? Boolean(row.notifier_api_key)
+        : false,
     created_at: row.created_at as string,
   }));
 }
@@ -209,4 +226,14 @@ export async function rotateTenantApiKey(
   }
 
   return { tenant: asTenant(data), apiKey };
+}
+
+export async function deleteTenantBySlug(slug: string): Promise<void> {
+  const supabase = getSupabaseAdmin();
+
+  const { error } = await supabase.from("tenants").delete().eq("slug", slug);
+
+  if (error) {
+    throw new Error(error.message);
+  }
 }

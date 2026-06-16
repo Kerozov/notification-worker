@@ -6,6 +6,7 @@ import { stashRevealedApiKey } from "@/lib/auth/admin-flash";
 import { hasAdminSession } from "@/lib/auth/admin";
 import {
   createTenant,
+  deleteTenantBySlug,
   normalizeTenantSlug,
   rotateTenantApiKey,
   updateTenant,
@@ -145,4 +146,40 @@ export async function rotateClientApiKeyAction(
     saved: "1",
     reveal: "1",
   });
+}
+
+export async function deleteClientAction(formData: FormData): Promise<void> {
+  await requireAdmin();
+
+  const slug = String(formData.get("slug") ?? "");
+  const confirmSlug = normalizeTenantSlug(
+    String(formData.get("confirmSlug") ?? ""),
+  );
+
+  if (!slug) {
+    clientsRedirect("/admin/clients", { error: "missing-client" });
+  }
+
+  if (confirmSlug !== slug) {
+    clientsRedirect(`/admin/clients/${slug}`, {
+      error: "Type the exact slug to confirm deletion",
+    });
+  }
+
+  let errorMessage: string | null = null;
+
+  try {
+    await deleteTenantBySlug(slug);
+  } catch (error) {
+    errorMessage =
+      error instanceof Error ? error.message : "Failed to delete client";
+  }
+
+  if (errorMessage) {
+    clientsRedirect(`/admin/clients/${slug}`, { error: errorMessage });
+  }
+
+  revalidatePath("/admin");
+  revalidatePath("/admin/clients");
+  clientsRedirect("/admin/clients", { saved: "1" });
 }

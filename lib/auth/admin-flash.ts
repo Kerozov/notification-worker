@@ -13,13 +13,13 @@ export async function stashRevealedApiKey(apiKey: string): Promise<void> {
   });
 }
 
-export async function takeRevealedApiKey(): Promise<string | null> {
+/** Read-only — safe in Server Components (no cookie mutation). */
+export async function peekRevealedApiKey(): Promise<string | null> {
   const cookieStore = await cookies();
-  const value = cookieStore.get(REVEAL_COOKIE)?.value ?? null;
+  return cookieStore.get(REVEAL_COOKIE)?.value ?? null;
+}
 
-  if (value) {
-    cookieStore.delete(REVEAL_COOKIE);
-  }
-
-  return value;
+export async function clearRevealedApiKey(): Promise<void> {
+  const cookieStore = await cookies();
+  cookieStore.delete(REVEAL_COOKIE);
 }

@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { getSupabaseAdmin } from "@/lib/db/supabase";
 import { hasAdminSession } from "@/lib/auth/admin";
 import { getDeliveryStatsByJobIds } from "@/lib/deliveries/stats";
+import { listTenantsForAdmin } from "@/lib/tenants/store";
 import { runCronNow } from "./actions";
 import styles from "./admin.module.css";
 import { formatDateTime, formatRelative } from "./components";
@@ -109,7 +110,6 @@ export default async function AdminPage({
 
   const [
     metaResult,
-    tenantsResult,
     email24hResult,
     recentEmailResult,
     pendingEmailResult,
@@ -124,10 +124,6 @@ export default async function AdminPage({
       .select("value")
       .eq("key", "last_cron_run_at")
       .maybeSingle(),
-    supabase
-      .from("tenants")
-      .select("id, slug, name, default_from, default_sms_sender, notifier_api_key")
-      .order("slug"),
     supabase
       .from("email_jobs")
       .select(EMAIL_SELECT)
@@ -174,14 +170,25 @@ export default async function AdminPage({
       .limit(10),
   ]);
 
-  const tenants: TenantRow[] = (tenantsResult.data ?? []).map((row) => ({
-    id: row.id as string,
-    slug: row.slug as string,
-    name: row.name as string,
-    default_from: row.default_from as string | null,
-    default_sms_sender: row.default_sms_sender as string | null,
-    notifier_configured: Boolean(row.notifier_api_key),
-  }));
+  let tenants: TenantRow[] = [];
+  let tenantsSchemaWarning: string | null = null;
+
+  try {
+    const rows = await listTenantsForAdmin();
+    tenants = rows.map((row) => ({
+      id: row.id,
+      slug: row.slug,
+      name: row.name,
+      default_from: row.default_from,
+      default_sms_sender: row.default_sms_sender,
+      notifier_configured: row.notifier_configured,
+    }));
+  } catch (error) {
+    tenantsSchemaWarning =
+      error instanceof Error
+        ? error.message
+        : "Failed to load clients from database";
+  }
 
   const email24h = (email24hResult.data ?? []) as EmailJobRow[];
   const recentEmail = (recentEmailResult.data ?? []) as EmailJobRow[];
@@ -247,6 +254,10 @@ export default async function AdminPage({
 
         {flashError ? (
           <section className={styles.errorBanner}>{flashError}</section>
+        ) : null}
+
+        {tenantsSchemaWarning ? (
+          <section className={styles.errorBanner}>{tenantsSchemaWarning}</section>
         ) : null}
 
         {canceled === "email" || canceled === "sms" ? (

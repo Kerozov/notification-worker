@@ -1,11 +1,16 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { takeRevealedApiKey } from "@/lib/auth/admin-flash";
+import { peekRevealedApiKey } from "@/lib/auth/admin-flash";
 import { hasAdminSession } from "@/lib/auth/admin";
 import { getTenantBySlug } from "@/lib/tenants/store";
 import styles from "../../admin.module.css";
 import { AdminNav } from "../../nav";
-import { ApiKeyReveal, ClientForm, RotateApiKeyForm } from "../client-forms";
+import {
+  ApiKeyReveal,
+  ClientForm,
+  DeleteClientForm,
+  RotateApiKeyForm,
+} from "../client-forms";
 
 type SearchParams = Promise<{
   error?: string;
@@ -35,7 +40,7 @@ export default async function EditClientPage({
   const flashError = query.error ? decodeURIComponent(query.error) : null;
   const saved = query.saved === "1";
   const revealedApiKey =
-    query.reveal === "1" ? await takeRevealedApiKey() : null;
+    query.reveal === "1" ? await peekRevealedApiKey() : null;
   const workerUrl =
     process.env.WORKER_URL?.trim() ||
     "https://notification-worker-phi.vercel.app";
@@ -96,6 +101,14 @@ export default async function EditClientPage({
             </p>
           </div>
           <RotateApiKeyForm slug={tenant.slug} />
+        </section>
+
+        <section className={styles.section}>
+          <div className={styles.sectionHeader}>
+            <h2 className={styles.sectionTitle}>Danger zone</h2>
+            <p className={styles.sectionHint}>Permanent action</p>
+          </div>
+          <DeleteClientForm slug={tenant.slug} />
         </section>
 
         <section className={styles.footerNote}>

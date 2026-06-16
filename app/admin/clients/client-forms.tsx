@@ -1,6 +1,7 @@
 import styles from "../admin.module.css";
 import {
   createClientAction,
+  deleteClientAction,
   rotateClientApiKeyAction,
   updateClientAction,
 } from "./actions";
@@ -156,6 +157,33 @@ export function RotateApiKeyForm({ slug }: { slug: string }) {
       </p>
       <button className={styles.cancelButton} type="submit">
         Generate new API key
+      </button>
+    </form>
+  );
+}
+
+export function DeleteClientForm({ slug }: { slug: string }) {
+  return (
+    <form className={styles.rotateKeyForm} action={deleteClientAction}>
+      <input type="hidden" name="slug" value={slug} />
+      <p className={styles.rotateKeyHint}>
+        Deletes this client and all related email/SMS jobs. This cannot be
+        undone.
+      </p>
+      <label className={styles.formField}>
+        <span className={styles.formLabel}>
+          Type <code>{slug}</code> to confirm
+        </span>
+        <input
+          className={styles.formInput}
+          name="confirmSlug"
+          required
+          autoComplete="off"
+          placeholder={slug}
+        />
+      </label>
+      <button className={styles.cancelButton} type="submit">
+        Delete client
       </button>
     </form>
   );
