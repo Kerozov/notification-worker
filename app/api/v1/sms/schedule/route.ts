@@ -13,6 +13,7 @@ import {
   resolveSmsSender,
   toSmsJobResponse,
 } from "@/lib/jobs/process-sms";
+import { dispatchScheduledSmsJob } from "@/lib/trigger/schedule";
 import { scheduleSmsBodySchema } from "@/lib/validation/sms-job";
 
 export async function POST(request: NextRequest) {
@@ -70,9 +71,21 @@ export async function POST(request: NextRequest) {
       idempotencyKey: parsed.data.idempotencyKey,
     });
 
+    let dispatch: "immediate" | "trigger" | "queued" = "queued";
+
+    if (job.status === "pending") {
+      try {
+        const result = await dispatchScheduledSmsJob(job.id, sendAt);
+        dispatch = result.mode;
+      } catch {
+        dispatch = "queued";
+      }
+    }
+
     return Response.json({
       ...toSmsJobResponse(job, invalid),
       sendAt: job.send_at,
+      dispatch: dispatch,
     });
   } catch (error) {
     const message =

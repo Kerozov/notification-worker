@@ -11,6 +11,8 @@
     "tenant:new": "bun scripts/new-tenant.ts",
     "diagnose:sms": "bun scripts/diagnose-sms.ts",
     "migrate": "bun scripts/migrate.ts",
+    "db:setup": "bun scripts/migrate.ts",
+    "db:verify": "bun scripts/verify-db.ts",
     "trigger:dev": "bunx trigger.dev@latest dev",
     "trigger:deploy": "bunx trigger.dev@latest deploy"
   },

@@ -8,6 +8,7 @@ import {
   rateLimitResponse,
 } from "@/lib/rate-limit/tenant";
 import { createEmailJob, resolveJobFrom } from "@/lib/jobs/process";
+import { dispatchScheduledEmailJob } from "@/lib/trigger/schedule";
 import { scheduleJobBodySchema } from "@/lib/validation/email-job";
 
 export async function POST(request: NextRequest) {
@@ -70,10 +71,22 @@ export async function POST(request: NextRequest) {
       idempotencyKey: parsed.data.idempotencyKey,
     });
 
+    let dispatch: "immediate" | "trigger" | "queued" = "queued";
+
+    if (job.status === "pending") {
+      try {
+        const result = await dispatchScheduledEmailJob(job.id, sendAt);
+        dispatch = result.mode;
+      } catch {
+        dispatch = "queued";
+      }
+    }
+
     return Response.json({
       jobId: job.id,
       status: job.status,
       sendAt: job.send_at,
+      dispatch: dispatch,
       invalid: invalid.length,
       ...(invalid.length > 0 ? { invalidEmails: invalid } : {}),
       ...(job.error ? { errors: [job.error] } : {}),

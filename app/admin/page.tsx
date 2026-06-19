@@ -4,7 +4,6 @@ import { getSupabaseAdmin } from "@/lib/db/supabase";
 import { hasAdminSession } from "@/lib/auth/admin";
 import { getDeliveryStatsByJobIds } from "@/lib/deliveries/stats";
 import { listTenantsForAdmin } from "@/lib/tenants/store";
-import { runCronNow } from "./actions";
 import styles from "./admin.module.css";
 import { formatDateTime, formatRelative } from "./components";
 import { AdminNav } from "./nav";
@@ -25,7 +24,6 @@ import {
 type SearchParams = Promise<{
   secret?: string;
   error?: string;
-  cronProcessed?: string;
   canceled?: string;
   channel?: string;
 }>;
@@ -85,9 +83,6 @@ export default async function AdminPage({
   const channel = parseChannel(params.channel);
   const flashError = params.error ? decodeURIComponent(params.error) : null;
   const canceled = params.canceled;
-  const cronProcessed = params.cronProcessed
-    ? Number(params.cronProcessed)
-    : null;
 
   if (!authorized) {
     return (
@@ -232,15 +227,10 @@ export default async function AdminPage({
           </div>
           <div className={styles.headerActions}>
             <div className={styles.headerMeta}>
-              <span>Last queue run</span>
+              <span>Last send processed</span>
               <strong>{formatDateTime(lastCronRun)}</strong>
               <span>{formatRelative(lastCronRun)} · Europe/Sofia</span>
             </div>
-            <form className={styles.runCronForm} action={runCronNow}>
-              <button className={styles.runCronButton} type="submit">
-                Process queues
-              </button>
-            </form>
           </div>
         </header>
 
@@ -263,12 +253,6 @@ export default async function AdminPage({
         {canceled === "email" || canceled === "sms" ? (
           <section className={styles.successBanner}>
             Scheduled {canceled === "email" ? "email" : "SMS"} canceled.
-          </section>
-        ) : null}
-
-        {cronProcessed !== null && !Number.isNaN(cronProcessed) ? (
-          <section className={styles.successBanner}>
-            Queues processed. Handled {cronProcessed} job(s).
           </section>
         ) : null}
 
@@ -357,7 +341,7 @@ export default async function AdminPage({
         {showEmail && channel !== "all" ? (
           <SectionBlock
             title="Email queue"
-            hint="Waiting for Trigger.dev or manual process"
+            hint="Trigger.dev fires at sendAt"
             badge={`${pendingEmail.length}`}
             variant="email"
           >
@@ -375,7 +359,7 @@ export default async function AdminPage({
         {showSms && channel !== "all" ? (
           <SectionBlock
             title="SMS queue"
-            hint="Waiting for Trigger.dev or manual process"
+            hint="Trigger.dev fires at sendAt"
             badge={`${pendingSms.length}`}
             variant="sms"
           >
@@ -513,7 +497,7 @@ export default async function AdminPage({
         ) : null}
 
         <section className={styles.footerNote}>
-          Scheduler: Trigger.dev every minute · Immediate API:{" "}
+          Scheduled: Trigger.dev at sendAt · Immediate:{" "}
           <code>/api/v1/send</code>, <code>/api/v1/sms/send</code>
         </section>
       </div>

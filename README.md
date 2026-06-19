@@ -2,35 +2,35 @@
 
 Minimal multi-tenant dispatch service for queued email sending via **ZeptoMail**.
 Each tenant site enqueues jobs through a Bearer API key; the worker stores `send_at`
-in the database and **Trigger.dev** drains the queue every minute.
+in the database; **Trigger.dev** fires one run per scheduled job at `send_at`.
 
 ## Architecture
 
 ```
 FunnelBrand / client sites
-    │  POST /api/v1/send       (immediate)
+    │  POST /api/v1/send       (immediate — worker sends now, no Trigger)
     │  POST /api/v1/schedule   (send_at in the future)
     ▼
-Email Worker (Next.js on Vercel Free)
+Notification Worker (Next.js on Vercel)
     │  writes email_jobs (pending) in Supabase
+    │  schedule → Trigger.dev task delayed until send_at
     ▼
-Trigger.dev  ──every 1 min──▶ GET /api/cron/process (Bearer CRON_SECRET)
+Trigger.dev  ──at send_at──▶ POST /api/internal/process/email/{id}
     ▼
-Worker claims due jobs ──▶ ZeptoMail batch API (track_opens=true)
+Worker sends ──▶ ZeptoMail batch API
     ▼
-ZeptoMail webhook ──▶ POST /api/webhooks/zeptomail ──▶ email_deliveries (opened/bounced)
+ZeptoMail webhook ──▶ POST /api/webhooks/zeptomail ──▶ email_deliveries
 ```
 
-- **send_at** lives in the worker DB (source of truth, supports cancel + idempotency)
-- **Trigger.dev** polls `/api/cron/process` every minute (production scheduler)
-- **ZeptoMail** only sends + reports opens via webhook (no native scheduling)
+- **Immediate send** (`/send`, `/sms/send`) — processed in the worker on the request, no Trigger.dev
+- **Scheduled send** (`/schedule`) — one Trigger.dev run per job at `send_at`
 
 ## Stack
 
 - Next.js 15 (App Router) + TypeScript
 - Supabase Postgres (service role on server only)
 - ZeptoMail batch API (50 recipients per request)
-- Trigger.dev scheduled task (`src/trigger/process-emails.ts`)
+- Trigger.dev tasks (`src/trigger/send-email-job.ts`, `send-sms-job.ts`)
 
 ## Setup
 
@@ -170,43 +170,44 @@ curl -X DELETE https://YOUR_WORKER/api/v1/jobs/JOB_ID \
   -H "Authorization: Bearer fb_xxx"
 ```
 
-### Cron processor
+### Internal process (Trigger.dev only)
 
-Called by **Trigger.dev** in production (or manually from admin):
+When a scheduled job fires, Trigger.dev calls:
 
 ```bash
-curl https://YOUR_WORKER/api/cron/process \
+curl -X POST https://YOUR_WORKER/api/internal/process/email/JOB_ID \
   -H "Authorization: Bearer ${CRON_SECRET}"
 ```
 
-Or use **Process queue now** in `/admin` (uses `ADMIN_SECRET`, no `CRON_SECRET` in the browser).
-
 ## Scheduling: Trigger.dev
 
-`src/trigger/process-emails.ts` polls `/api/cron/process` every minute.
-Deploy to Trigger.dev (project `proj_txagoerfovcysbewkqzq`) with:
+Per scheduled job, the worker calls Trigger.dev with `delay: sendAt`.
+At that time Trigger hits `POST /api/internal/process/email/{id}` (or `/sms/{id}`).
+
+**Vercel env:** add `TRIGGER_SECRET_KEY` (so `/schedule` can enqueue runs).
+
+**Trigger.dev project env:**
 
 - `WORKER_URL` — e.g. `https://notification-worker-phi.vercel.app`
 - `CRON_SECRET` — same value as the worker
 
 ```bash
 bun run trigger:dev      # local dev (syncs tasks to Trigger.dev)
-bun run trigger:deploy   # production
+bun run trigger:deploy   # production — redeploy after task changes
 ```
 
-No Vercel cron is configured — scheduling is entirely on Trigger.dev.
+Disable or delete any old Trigger.dev scheduled tasks (e.g. `process-emails`, `process-queue-backup`) in the dashboard so runs are only per-job.
 
 ## Admin panel
 
 Sign in via `/api/admin/login?secret=YOUR_ADMIN_SECRET` (sets a cookie), then open `/admin`.
-Shows last queue run, 24h job counts, per-tenant activity, pending queue, recent jobs with
-open counts, failed jobs, and a **Process queue now** button.
+Shows last processed send, 24h job counts, per-tenant activity, pending queue, recent jobs with
+open counts, failed jobs, and cancel for pending scheduled jobs.
 
 ## Limits (v1)
 
 - Max 500 recipients per job
 - Max 10 jobs/minute per tenant
-- Cron processes up to 20 pending jobs per run
 - Idempotency: same `tenant + idempotencyKey` returns the existing job
 
 ## Project structure
@@ -215,7 +216,8 @@ open counts, failed jobs, and a **Process queue now** button.
 app/api/v1/send/route.ts
 app/api/v1/schedule/route.ts
 app/api/v1/jobs/[id]/route.ts
-app/api/cron/process/route.ts
+app/api/internal/process/email/[id]/route.ts
+app/api/internal/process/sms/[id]/route.ts
 app/api/webhooks/zeptomail/route.ts
 app/api/admin/login/route.ts
 app/admin/page.tsx
@@ -228,7 +230,8 @@ lib/jobs/process.ts
 lib/jobs/query.ts
 lib/rate-limit/tenant.ts
 lib/validation/email-job.ts
-src/trigger/process-emails.ts  # Trigger.dev scheduler
+src/trigger/send-email-job.ts
+src/trigger/send-sms-job.ts
 trigger.config.ts
 scripts/seed.ts
 scripts/migrate.ts

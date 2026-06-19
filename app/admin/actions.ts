@@ -3,8 +3,8 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { hasAdminSession } from "@/lib/auth/admin";
-import { processPendingJobs, recordCronRun, cancelPendingJobById } from "@/lib/jobs/process";
-import { processPendingSmsJobs, cancelPendingSmsJobById } from "@/lib/jobs/process-sms";
+import { cancelPendingJobById } from "@/lib/jobs/process";
+import { cancelPendingSmsJobById } from "@/lib/jobs/process-sms";
 import { resendJobAsNew } from "@/lib/jobs/resend";
 import {
   parseRecipientsFromFile,
@@ -39,33 +39,6 @@ function redirectResendResult(
   }
 
   redirect(`/admin/resend/${jobId}?${params.toString()}`);
-}
-
-export async function runCronNow(): Promise<void> {
-  if (!(await hasAdminSession())) {
-    redirect("/admin?error=unauthorized");
-  }
-
-  let processed = 0;
-
-  try {
-    const [email, sms] = await Promise.all([
-      processPendingJobs(20),
-      processPendingSmsJobs(20),
-    ]);
-    processed = email.processed + sms.processed;
-
-    if (processed > 0) {
-      await recordCronRun();
-    }
-  } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Cron processing failed";
-    redirect(`/admin?error=${encodeURIComponent(message)}`);
-  }
-
-  revalidatePath("/admin");
-  redirect(`/admin?cronProcessed=${processed}`);
 }
 
 function adminRedirect(channel: string, params: Record<string, string>): void {
