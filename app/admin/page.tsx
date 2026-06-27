@@ -2,11 +2,21 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getSupabaseAdmin } from "@/lib/db/supabase";
 import { hasAdminSession } from "@/lib/auth/admin";
+import {
+  fetchFilteredEmailJobs,
+  fetchFilteredSmsJobs,
+  parseJobListFilters,
+} from "@/lib/admin/job-query";
 import { getDeliveryStatsByJobIds } from "@/lib/deliveries/stats";
 import { listTenantsForAdmin } from "@/lib/tenants/store";
 import styles from "./admin.module.css";
 import { formatDateTime, formatRelative } from "./components";
 import { AdminNav } from "./nav";
+import {
+  JobFiltersBar,
+  JobsPagination,
+  StatusFilterChips,
+} from "./job-filters-bar";
 import {
   ChannelNav,
   ChannelOverview,
@@ -26,6 +36,13 @@ type SearchParams = Promise<{
   error?: string;
   canceled?: string;
   channel?: string;
+  status?: string;
+  tenant?: string;
+  period?: string;
+  q?: string;
+  page?: string;
+  sort?: string;
+  sortDir?: string;
 }>;
 
 const EMAIL_SELECT =
@@ -81,6 +98,7 @@ export default async function AdminPage({
   const authorized = await authorizeAdmin(searchParams);
   const params = await searchParams;
   const channel = parseChannel(params.channel);
+  const jobFilters = parseJobListFilters(params);
   const flashError = params.error ? decodeURIComponent(params.error) : null;
   const canceled = params.canceled;
 
@@ -103,68 +121,6 @@ export default async function AdminPage({
   const supabase = getSupabaseAdmin();
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
-  const [
-    metaResult,
-    email24hResult,
-    recentEmailResult,
-    pendingEmailResult,
-    failedEmailResult,
-    sms24hResult,
-    recentSmsResult,
-    pendingSmsResult,
-    failedSmsResult,
-  ] = await Promise.all([
-    supabase
-      .from("worker_meta")
-      .select("value")
-      .eq("key", "last_cron_run_at")
-      .maybeSingle(),
-    supabase
-      .from("email_jobs")
-      .select(EMAIL_SELECT)
-      .gte("created_at", since)
-      .order("created_at", { ascending: false }),
-    supabase
-      .from("email_jobs")
-      .select(EMAIL_SELECT)
-      .order("created_at", { ascending: false })
-      .limit(25),
-    supabase
-      .from("email_jobs")
-      .select(EMAIL_SELECT)
-      .eq("status", "pending")
-      .order("send_at", { ascending: true })
-      .limit(15),
-    supabase
-      .from("email_jobs")
-      .select(EMAIL_SELECT)
-      .eq("status", "failed")
-      .order("updated_at", { ascending: false })
-      .limit(10),
-    supabase
-      .from("sms_jobs")
-      .select(SMS_SELECT)
-      .gte("created_at", since)
-      .order("created_at", { ascending: false }),
-    supabase
-      .from("sms_jobs")
-      .select(SMS_SELECT)
-      .order("created_at", { ascending: false })
-      .limit(25),
-    supabase
-      .from("sms_jobs")
-      .select(SMS_SELECT)
-      .eq("status", "pending")
-      .order("send_at", { ascending: true })
-      .limit(15),
-    supabase
-      .from("sms_jobs")
-      .select(SMS_SELECT)
-      .eq("status", "failed")
-      .order("updated_at", { ascending: false })
-      .limit(10),
-  ]);
-
   let tenants: TenantRow[] = [];
   let tenantsSchemaWarning: string | null = null;
 
@@ -185,34 +141,119 @@ export default async function AdminPage({
         : "Failed to load clients from database";
   }
 
-  const email24h = (email24hResult.data ?? []) as EmailJobRow[];
-  const recentEmail = (recentEmailResult.data ?? []) as EmailJobRow[];
-  const pendingEmail = (pendingEmailResult.data ?? []) as EmailJobRow[];
-  const failedEmail = (failedEmailResult.data ?? []) as EmailJobRow[];
-
-  const sms24h = sms24hResult.error ? [] : ((sms24hResult.data ?? []) as SmsJobRow[]);
-  const recentSms = recentSmsResult.error
-    ? []
-    : ((recentSmsResult.data ?? []) as SmsJobRow[]);
-  const pendingSms = pendingSmsResult.error
-    ? []
-    : ((pendingSmsResult.data ?? []) as SmsJobRow[]);
-  const failedSms = failedSmsResult.error
-    ? []
-    : ((failedSmsResult.data ?? []) as SmsJobRow[]);
-
   const tenantIdToSlug = new Map(tenants.map((tenant) => [tenant.id, tenant.slug]));
-  const lastCronRun = (metaResult.data as { value: string } | null)?.value;
+  const slugToTenantId = new Map(tenants.map((tenant) => [tenant.slug, tenant.id]));
+  const filterTenantId =
+    jobFilters.tenant === "all"
+      ? null
+      : (slugToTenantId.get(jobFilters.tenant) ?? "__invalid__");
+
+  const overviewQueries = channel === "all"
+    ? Promise.all([
+        supabase
+          .from("worker_meta")
+          .select("value")
+          .eq("key", "last_cron_run_at")
+          .maybeSingle(),
+        supabase
+          .from("email_jobs")
+          .select(EMAIL_SELECT)
+          .gte("created_at", since)
+          .order("created_at", { ascending: false }),
+        supabase
+          .from("email_jobs")
+          .select(EMAIL_SELECT)
+          .eq("status", "pending")
+          .order("send_at", { ascending: true })
+          .limit(8),
+        supabase
+          .from("email_jobs")
+          .select(EMAIL_SELECT)
+          .eq("status", "failed")
+          .order("updated_at", { ascending: false })
+          .limit(5),
+        supabase
+          .from("sms_jobs")
+          .select(SMS_SELECT)
+          .gte("created_at", since)
+          .order("created_at", { ascending: false }),
+        supabase
+          .from("sms_jobs")
+          .select(SMS_SELECT)
+          .eq("status", "pending")
+          .order("send_at", { ascending: true })
+          .limit(8),
+        supabase
+          .from("sms_jobs")
+          .select(SMS_SELECT)
+          .eq("status", "failed")
+          .order("updated_at", { ascending: false })
+          .limit(5),
+      ])
+    : null;
+
+  const filteredEmailPromise =
+    channel === "email"
+      ? fetchFilteredEmailJobs<EmailJobRow>(jobFilters, filterTenantId)
+      : null;
+
+  const filteredSmsPromise =
+    channel === "sms"
+      ? fetchFilteredSmsJobs<SmsJobRow>(jobFilters, filterTenantId)
+      : null;
+
+  const [overviewResults, emailList, smsList] = await Promise.all([
+    overviewQueries,
+    filteredEmailPromise,
+    filteredSmsPromise,
+  ]);
+
+  let lastCronRun: string | null | undefined;
+  let email24h: EmailJobRow[] = [];
+  let pendingEmail: EmailJobRow[] = [];
+  let failedEmail: EmailJobRow[] = [];
+  let sms24h: SmsJobRow[] = [];
+  let pendingSms: SmsJobRow[] = [];
+  let failedSms: SmsJobRow[] = [];
+  let sms24hError = false;
+
+  if (overviewResults) {
+    const [
+      metaResult,
+      email24hResult,
+      pendingEmailResult,
+      failedEmailResult,
+      sms24hResult,
+      pendingSmsResult,
+      failedSmsResult,
+    ] = overviewResults;
+
+    lastCronRun = (metaResult.data as { value: string } | null)?.value;
+    email24h = (email24hResult.data ?? []) as EmailJobRow[];
+    pendingEmail = (pendingEmailResult.data ?? []) as EmailJobRow[];
+    failedEmail = (failedEmailResult.data ?? []) as EmailJobRow[];
+    sms24h = sms24hResult.error ? [] : ((sms24hResult.data ?? []) as SmsJobRow[]);
+    pendingSms = pendingSmsResult.error
+      ? []
+      : ((pendingSmsResult.data ?? []) as SmsJobRow[]);
+    failedSms = failedSmsResult.error
+      ? []
+      : ((failedSmsResult.data ?? []) as SmsJobRow[]);
+    sms24hError = Boolean(sms24hResult.error);
+  }
+
+  const emailJobs =
+    channel === "email" && emailList ? emailList.jobs : pendingEmail;
+  const smsJobs = channel === "sms" && smsList ? smsList.jobs : pendingSms;
 
   const deliveryStats = await getDeliveryStatsByJobIds([
     ...new Set([
-      ...recentEmail.map((job) => job.id),
-      ...pendingEmail.map((job) => job.id),
+      ...emailJobs.map((job) => job.id),
+      ...smsJobs.map((job) => job.id),
+      ...failedEmail.map((job) => job.id),
     ]),
   ]);
 
-  const showEmail = channel === "all" || channel === "email";
-  const showSms = channel === "all" || channel === "sms";
 
   return (
     <main className={styles.adminPage}>
@@ -228,8 +269,8 @@ export default async function AdminPage({
           <div className={styles.headerActions}>
             <div className={styles.headerMeta}>
               <span>Last send processed</span>
-              <strong>{formatDateTime(lastCronRun)}</strong>
-              <span>{formatRelative(lastCronRun)} · Europe/Sofia</span>
+              <strong>{formatDateTime(lastCronRun ?? null)}</strong>
+              <span>{formatRelative(lastCronRun ?? null)} · Europe/Sofia</span>
             </div>
           </div>
         </header>
@@ -275,27 +316,145 @@ export default async function AdminPage({
               smsRecipients24h={sumSentCount(sms24h)}
               tenants={tenants.length}
             />
+
+            <div className={styles.exploreLinks}>
+              <Link className={styles.exploreLink} href="/admin?channel=email">
+                Browse all email jobs →
+              </Link>
+              <Link className={styles.exploreLink} href="/admin?channel=sms">
+                Browse all SMS jobs →
+              </Link>
+              <Link
+                className={styles.exploreLink}
+                href="/admin?channel=email&status=failed&period=7d"
+              >
+                Failed email (7d) →
+              </Link>
+              <Link
+                className={styles.exploreLink}
+                href="/admin?channel=sms&status=failed&period=7d"
+              >
+                Failed SMS (7d) →
+              </Link>
+            </div>
           </>
         ) : null}
 
-        {channel === "email" ? (
-          <QuickStats
-            emailPending={pendingEmail.length}
-            emailRecipients24h={sumSentCount(email24h)}
-            smsPending={0}
-            smsRecipients24h={0}
-            tenants={tenants.length}
-          />
+        {channel === "email" && emailList ? (
+          <>
+            <QuickStats
+              emailPending={
+                emailList.statusCounts.find((row) => row.status === "pending")
+                  ?.count ?? 0
+              }
+              emailRecipients24h={sumSentCount(
+                emailList.jobs.filter((job) => job.status === "sent"),
+              )}
+              smsPending={0}
+              smsRecipients24h={0}
+              tenants={tenants.length}
+            />
+            <SectionBlock
+              title="Email jobs"
+              hint="Filter by status, client, period, or search"
+              variant="email"
+            >
+              <JobFiltersBar
+                channel="email"
+                filters={jobFilters}
+                tenants={tenants.map((tenant) => ({
+                  slug: tenant.slug,
+                  name: tenant.name,
+                }))}
+              />
+              <StatusFilterChips
+                channel="email"
+                filters={jobFilters}
+                statusCounts={emailList.statusCounts}
+                total={emailList.total}
+              />
+              {emailList.error ? (
+                <div className={styles.empty}>{emailList.error}</div>
+              ) : (
+                <>
+                  <EmailJobsTable
+                    jobs={emailList.jobs}
+                    tenantIdToSlug={tenantIdToSlug}
+                    deliveryStats={deliveryStats}
+                    emptyMessage="No email jobs match your filters."
+                    showCancel
+                    showJobId
+                    channel="email"
+                  />
+                  <JobsPagination
+                    channel="email"
+                    filters={jobFilters}
+                    total={emailList.total}
+                  />
+                </>
+              )}
+            </SectionBlock>
+          </>
         ) : null}
 
-        {channel === "sms" ? (
-          <QuickStats
-            emailPending={0}
-            emailRecipients24h={0}
-            smsPending={pendingSms.length}
-            smsRecipients24h={sumSentCount(sms24h)}
-            tenants={tenants.length}
-          />
+        {channel === "sms" && smsList ? (
+          <>
+            <QuickStats
+              emailPending={0}
+              emailRecipients24h={0}
+              smsPending={
+                smsList.statusCounts.find((row) => row.status === "pending")
+                  ?.count ?? 0
+              }
+              smsRecipients24h={sumSentCount(
+                smsList.jobs.filter((job) => job.status === "sent"),
+              )}
+              tenants={tenants.length}
+            />
+            <SectionBlock
+              title="SMS jobs"
+              hint="Filter by status, client, period, or search"
+              variant="sms"
+            >
+              <JobFiltersBar
+                channel="sms"
+                filters={jobFilters}
+                tenants={tenants.map((tenant) => ({
+                  slug: tenant.slug,
+                  name: tenant.name,
+                }))}
+              />
+              <StatusFilterChips
+                channel="sms"
+                filters={jobFilters}
+                statusCounts={smsList.statusCounts}
+                total={smsList.total}
+              />
+              {smsList.error ? (
+                <div className={styles.empty}>{smsList.error}</div>
+              ) : (
+                <>
+                  <SmsJobsTable
+                    jobs={smsList.jobs}
+                    tenantIdToSlug={tenantIdToSlug}
+                    emptyMessage={
+                      sms24hError
+                        ? "SMS tables missing — run migration 006_sms.sql"
+                        : "No SMS jobs match your filters."
+                    }
+                    showCancel
+                    showJobId
+                    channel="sms"
+                  />
+                  <JobsPagination
+                    channel="sms"
+                    filters={jobFilters}
+                    total={smsList.total}
+                  />
+                </>
+              )}
+            </SectionBlock>
+          </>
         ) : null}
 
         {channel === "all" ? (
@@ -326,7 +485,7 @@ export default async function AdminPage({
                 jobs={pendingSms}
                 tenantIdToSlug={tenantIdToSlug}
                 emptyMessage={
-                  sms24hResult.error
+                  sms24hError
                     ? "SMS tables missing — run migration 006_sms.sql"
                     : "No pending SMS jobs."
                 }
@@ -338,98 +497,54 @@ export default async function AdminPage({
           </div>
         ) : null}
 
-        {showEmail && channel !== "all" ? (
-          <SectionBlock
-            title="Email queue"
-            hint="Trigger.dev fires at sendAt"
-            badge={`${pendingEmail.length}`}
-            variant="email"
-          >
-            <EmailJobsTable
-              jobs={pendingEmail}
-              tenantIdToSlug={tenantIdToSlug}
-              deliveryStats={deliveryStats}
-              emptyMessage="No pending email jobs."
-              showCancel
-              channel={channel}
-            />
-          </SectionBlock>
-        ) : null}
-
-        {showSms && channel !== "all" ? (
-          <SectionBlock
-            title="SMS queue"
-            hint="Trigger.dev fires at sendAt"
-            badge={`${pendingSms.length}`}
-            variant="sms"
-          >
-            <SmsJobsTable
-              jobs={pendingSms}
-              tenantIdToSlug={tenantIdToSlug}
-              emptyMessage="No pending SMS jobs."
-              showCancel
-              channel={channel}
-            />
-          </SectionBlock>
-        ) : null}
-
-        {channel === "all" ? (
+        {channel === "all" && (failedEmail.length > 0 || failedSms.length > 0) ? (
           <div className={styles.splitGrid}>
-            <SectionBlock
-              title="Recent email"
-              hint="Latest 25 campaigns"
-              variant="email"
-            >
-              <EmailJobsTable
-                jobs={recentEmail}
-                tenantIdToSlug={tenantIdToSlug}
-                deliveryStats={deliveryStats}
-                emptyMessage="No email jobs yet."
-                compact
-              />
-            </SectionBlock>
-            <SectionBlock
-              title="Recent SMS"
-              hint="Latest 25 messages"
-              variant="sms"
-            >
-              <SmsJobsTable
-                jobs={recentSms}
-                tenantIdToSlug={tenantIdToSlug}
-                emptyMessage="No SMS jobs yet."
-                compact
-              />
-            </SectionBlock>
+            {failedEmail.length > 0 ? (
+              <SectionBlock
+                title="Recent email failures"
+                hint="Last 5 · open full list for filters"
+                variant="email"
+              >
+                <EmailJobsTable
+                  jobs={failedEmail}
+                  tenantIdToSlug={tenantIdToSlug}
+                  deliveryStats={deliveryStats}
+                  emptyMessage="No failed email jobs."
+                  compact
+                />
+                <p className={styles.sectionFooterLink}>
+                  <Link
+                    className={styles.actionLink}
+                    href="/admin?channel=email&status=failed&period=7d"
+                  >
+                    View all failed email →
+                  </Link>
+                </p>
+              </SectionBlock>
+            ) : null}
+            {failedSms.length > 0 ? (
+              <SectionBlock
+                title="Recent SMS failures"
+                hint="Last 5 · open full list for filters"
+                variant="sms"
+              >
+                <SmsJobsTable
+                  jobs={failedSms}
+                  tenantIdToSlug={tenantIdToSlug}
+                  emptyMessage="No failed SMS jobs."
+                  compact
+                />
+                <p className={styles.sectionFooterLink}>
+                  <Link
+                    className={styles.actionLink}
+                    href="/admin?channel=sms&status=failed&period=7d"
+                  >
+                    View all failed SMS →
+                  </Link>
+                </p>
+              </SectionBlock>
+            ) : null}
           </div>
-        ) : null}
-
-        {showEmail && channel !== "all" ? (
-          <SectionBlock
-            title="Recent email jobs"
-            hint="Latest 25 across all tenants"
-            variant="email"
-          >
-            <EmailJobsTable
-              jobs={recentEmail}
-              tenantIdToSlug={tenantIdToSlug}
-              deliveryStats={deliveryStats}
-              emptyMessage="No email jobs yet."
-            />
-          </SectionBlock>
-        ) : null}
-
-        {showSms && channel !== "all" ? (
-          <SectionBlock
-            title="Recent SMS jobs"
-            hint="Latest 25 across all tenants"
-            variant="sms"
-          >
-            <SmsJobsTable
-              jobs={recentSms}
-              tenantIdToSlug={tenantIdToSlug}
-              emptyMessage="No SMS jobs yet."
-            />
-          </SectionBlock>
         ) : null}
 
         <SectionBlock title="Clients" hint="Tenants and channel configuration">
@@ -444,57 +559,6 @@ export default async function AdminPage({
             smsJobs24h={sms24h}
           />
         </SectionBlock>
-
-        {channel === "all" ? (
-          <div className={styles.splitGrid}>
-            <SectionBlock
-              title="Email failures"
-              hint="Latest errors"
-              variant="email"
-            >
-              <EmailJobsTable
-                jobs={failedEmail}
-                tenantIdToSlug={tenantIdToSlug}
-                deliveryStats={deliveryStats}
-                emptyMessage="No failed email jobs."
-                compact
-              />
-            </SectionBlock>
-            <SectionBlock
-              title="SMS failures"
-              hint="Latest errors"
-              variant="sms"
-            >
-              <SmsJobsTable
-                jobs={failedSms}
-                tenantIdToSlug={tenantIdToSlug}
-                emptyMessage="No failed SMS jobs."
-                compact
-              />
-            </SectionBlock>
-          </div>
-        ) : null}
-
-        {showEmail && channel !== "all" && failedEmail.length > 0 ? (
-          <SectionBlock title="Failed email jobs" variant="email">
-            <EmailJobsTable
-              jobs={failedEmail}
-              tenantIdToSlug={tenantIdToSlug}
-              deliveryStats={deliveryStats}
-              emptyMessage="No failed email jobs."
-            />
-          </SectionBlock>
-        ) : null}
-
-        {showSms && channel !== "all" && failedSms.length > 0 ? (
-          <SectionBlock title="Failed SMS jobs" variant="sms">
-            <SmsJobsTable
-              jobs={failedSms}
-              tenantIdToSlug={tenantIdToSlug}
-              emptyMessage="No failed SMS jobs."
-            />
-          </SectionBlock>
-        ) : null}
 
         <section className={styles.footerNote}>
           Scheduled: Trigger.dev at sendAt · Immediate:{" "}

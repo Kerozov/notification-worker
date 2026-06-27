@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { Fragment, type ReactNode } from "react";
 import Link from "next/link";
 import styles from "./admin.module.css";
 import {
@@ -49,6 +49,7 @@ export type SmsJobRow = {
   failed_count: number;
   error: string | null;
   send_at: string;
+  created_at: string;
   updated_at: string;
 };
 
@@ -225,6 +226,7 @@ export function EmailJobsTable({
   compact = false,
   showCancel = false,
   channel = "all",
+  showJobId = false,
 }: {
   jobs: EmailJobRow[];
   tenantIdToSlug: Map<string, string>;
@@ -233,6 +235,7 @@ export function EmailJobsTable({
   compact?: boolean;
   showCancel?: boolean;
   channel?: ChannelView;
+  showJobId?: boolean;
 }) {
   if (jobs.length === 0) {
     return <div className={styles.empty}>{emptyMessage}</div>;
@@ -244,13 +247,15 @@ export function EmailJobsTable({
         <thead>
           <tr>
             <th>Status</th>
+            {showJobId ? <th>Job ID</th> : null}
             <th>Tenant</th>
             {!compact ? <th>From</th> : null}
             <th>Subject</th>
             <th>Recipients</th>
             <th>Delivery</th>
             {!compact ? <th>Engagement</th> : null}
-            <th>When</th>
+            <th>Created</th>
+            {!compact ? <th>Send at</th> : null}
             {showCancel || !compact ? <th></th> : null}
           </tr>
         </thead>
@@ -259,55 +264,82 @@ export function EmailJobsTable({
             const stats = deliveryStats.get(job.id);
             const counts = getJobDisplayCounts(job, stats);
             const displayStatus = resolveDisplayStatus(job, stats);
+            const hasError =
+              job.error &&
+              (displayStatus === "failed" ||
+                displayStatus === "partial" ||
+                job.failed_count > 0);
 
             return (
-              <tr key={job.id}>
-                <td>
-                  <StatusBadge status={displayStatus} />
-                </td>
-                <td className={styles.tenantCell}>
-                  {tenantIdToSlug.get(job.tenant_id) ?? shortId(job.tenant_id)}
-                </td>
-                {!compact ? (
-                  <td className={styles.truncateWide} title={job.from_email ?? undefined}>
-                    {job.from_email ?? "—"}
+              <Fragment key={job.id}>
+                <tr>
+                  <td>
+                    <StatusBadge status={displayStatus} />
                   </td>
-                ) : null}
-                <td className={styles.truncateWide} title={job.subject}>
-                  {job.subject}
-                </td>
-                <td className={styles.recipients}>
-                  {formatRecipients(job.recipients)}
-                </td>
-                <td className={styles.metricCell}>{deliveryLine(counts)}</td>
-                {!compact ? (
-                  <td className={styles.metricCell}>{engagementLine(counts)}</td>
-                ) : null}
-                <td className={styles.timeCell}>
-                  <span title={formatRelative(job.updated_at)}>
-                    {formatDateTime(job.send_at)}
-                  </span>
-                </td>
-                {showCancel || !compact ? (
-                  <td className={styles.actionsCell}>
-                    {showCancel && job.status === "pending" ? (
-                      <CancelJobForm
-                        jobId={job.id}
-                        channel={channel}
-                        kind="email"
-                      />
-                    ) : null}
-                    {!compact && !showCancel ? (
-                      <Link
-                        className={styles.actionLink}
-                        href={`/admin/resend/${job.id}`}
-                      >
-                        Resend
-                      </Link>
-                    ) : null}
+                  {showJobId ? (
+                    <td className={styles.mono} title={job.id}>
+                      {shortId(job.id)}
+                    </td>
+                  ) : null}
+                  <td className={styles.tenantCell}>
+                    {tenantIdToSlug.get(job.tenant_id) ?? shortId(job.tenant_id)}
                   </td>
+                  {!compact ? (
+                    <td className={styles.truncateWide} title={job.from_email ?? undefined}>
+                      {job.from_email ?? "—"}
+                    </td>
+                  ) : null}
+                  <td className={styles.truncateWide} title={job.subject}>
+                    {job.subject}
+                  </td>
+                  <td className={styles.recipients}>
+                    {formatRecipients(job.recipients)}
+                  </td>
+                  <td className={styles.metricCell}>{deliveryLine(counts)}</td>
+                  {!compact ? (
+                    <td className={styles.metricCell}>{engagementLine(counts)}</td>
+                  ) : null}
+                  <td className={styles.timeCell}>
+                    <span title={formatRelative(job.created_at)}>
+                      {formatDateTime(job.created_at)}
+                    </span>
+                  </td>
+                  {!compact ? (
+                    <td className={styles.timeCell}>
+                      <span title={formatRelative(job.send_at)}>
+                        {formatDateTime(job.send_at)}
+                      </span>
+                    </td>
+                  ) : null}
+                  {showCancel || !compact ? (
+                    <td className={styles.actionsCell}>
+                      {showCancel && job.status === "pending" ? (
+                        <CancelJobForm
+                          jobId={job.id}
+                          channel={channel}
+                          kind="email"
+                        />
+                      ) : null}
+                      {!compact && !showCancel ? (
+                        <Link
+                          className={styles.actionLink}
+                          href={`/admin/resend/${job.id}`}
+                        >
+                          Resend
+                        </Link>
+                      ) : null}
+                    </td>
+                  ) : null}
+                </tr>
+                {hasError && !compact ? (
+                  <tr className={styles.errorRow}>
+                    <td colSpan={12}>
+                      <span className={styles.errorRowLabel}>Error</span>
+                      {job.error}
+                    </td>
+                  </tr>
                 ) : null}
-              </tr>
+              </Fragment>
             );
           })}
         </tbody>
@@ -323,6 +355,7 @@ export function SmsJobsTable({
   compact = false,
   showCancel = false,
   channel = "all",
+  showJobId = false,
 }: {
   jobs: SmsJobRow[];
   tenantIdToSlug: Map<string, string>;
@@ -330,6 +363,7 @@ export function SmsJobsTable({
   compact?: boolean;
   showCancel?: boolean;
   channel?: ChannelView;
+  showJobId?: boolean;
 }) {
   if (jobs.length === 0) {
     return <div className={styles.empty}>{emptyMessage}</div>;
@@ -341,52 +375,84 @@ export function SmsJobsTable({
         <thead>
           <tr>
             <th>Status</th>
+            {showJobId ? <th>Job ID</th> : null}
             <th>Tenant</th>
             <th>Sender</th>
             <th>Message</th>
             <th>Recipients</th>
             <th>Result</th>
-            {!compact ? <th>Error</th> : null}
-            <th>When</th>
-            {showCancel ? <th></th> : null}
+            <th>Created</th>
+            {!compact ? <th>Send at</th> : null}
+            {showCancel || !compact ? <th></th> : null}
           </tr>
         </thead>
         <tbody>
-          {jobs.map((job) => (
-            <tr key={job.id}>
-              <td>
-                <StatusBadge status={job.status} />
-              </td>
-              <td className={styles.tenantCell}>
-                {tenantIdToSlug.get(job.tenant_id) ?? shortId(job.tenant_id)}
-              </td>
-              <td>{job.sender ?? "—"}</td>
-              <td className={styles.truncateWide} title={job.body}>
-                {job.body}
-              </td>
-              <td className={styles.recipients}>
-                {formatRecipients(job.recipients)}
-              </td>
-              <td className={styles.metricCell}>
-                {job.sent_count} sent · {job.failed_count} failed
-              </td>
-              {!compact ? (
-                <td className={styles.errorText}>{job.error ?? "—"}</td>
-              ) : null}
-              <td className={styles.timeCell}>{formatDateTime(job.send_at)}</td>
-              {showCancel ? (
-                <td className={styles.actionsCell}>
-                  {job.status === "pending" ? (
-                    <CancelJobForm
-                      jobId={job.id}
-                      channel={channel}
-                      kind="sms"
-                    />
+          {jobs.map((job) => {
+            const hasError =
+              job.error &&
+              (job.status === "failed" ||
+                job.status === "partial" ||
+                job.failed_count > 0);
+
+            return (
+              <Fragment key={job.id}>
+                <tr>
+                  <td>
+                    <StatusBadge status={job.status} />
+                  </td>
+                  {showJobId ? (
+                    <td className={styles.mono} title={job.id}>
+                      {shortId(job.id)}
+                    </td>
                   ) : null}
-                </td>
-              ) : null}
-            </tr>
-          ))}
+                  <td className={styles.tenantCell}>
+                    {tenantIdToSlug.get(job.tenant_id) ?? shortId(job.tenant_id)}
+                  </td>
+                  <td>{job.sender ?? "—"}</td>
+                  <td className={styles.truncateWide} title={job.body}>
+                    {job.body}
+                  </td>
+                  <td className={styles.recipients}>
+                    {formatRecipients(job.recipients)}
+                  </td>
+                  <td className={styles.metricCell}>
+                    {job.sent_count} sent · {job.failed_count} failed
+                  </td>
+                  <td className={styles.timeCell}>
+                    <span title={formatRelative(job.created_at)}>
+                      {formatDateTime(job.created_at)}
+                    </span>
+                  </td>
+                  {!compact ? (
+                    <td className={styles.timeCell}>
+                      <span title={formatRelative(job.send_at)}>
+                        {formatDateTime(job.send_at)}
+                      </span>
+                    </td>
+                  ) : null}
+                  {showCancel || !compact ? (
+                    <td className={styles.actionsCell}>
+                      {showCancel && job.status === "pending" ? (
+                        <CancelJobForm
+                          jobId={job.id}
+                          channel={channel}
+                          kind="sms"
+                        />
+                      ) : null}
+                    </td>
+                  ) : null}
+                </tr>
+                {hasError && !compact ? (
+                  <tr className={styles.errorRow}>
+                    <td colSpan={12}>
+                      <span className={styles.errorRowLabel}>Error</span>
+                      {job.error}
+                    </td>
+                  </tr>
+                ) : null}
+              </Fragment>
+            );
+          })}
         </tbody>
       </table>
     </div>
