@@ -89,7 +89,7 @@ export function JobFiltersBar({
             type="search"
             name="q"
             defaultValue={filters.q}
-            placeholder="Subject, message, job ID, error…"
+            placeholder="Email, subject, from, job ID…"
           />
         </label>
 

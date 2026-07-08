@@ -98,24 +98,56 @@ function applyBaseFilters<T>(
   return q;
 }
 
+function buildEmailSearchOr(term: string): string {
+  const escaped = escapeIlike(term);
+  const clauses = [
+    `subject.ilike.%${escaped}%`,
+    `error.ilike.%${escaped}%`,
+    `from_email.ilike.%${escaped}%`,
+    `idempotency_key.ilike.%${escaped}%`,
+    `recipients::text.ilike.%${escaped}%`,
+  ];
+
+  if (/^[0-9a-f-]{36}$/i.test(term)) {
+    clauses.push(`id.eq.${term}`);
+  }
+
+  if (term.includes("@")) {
+    const emailLiteral = term.replace(/"/g, '\\"');
+    clauses.push(`recipients.cs.["${emailLiteral}"]`);
+  }
+
+  return clauses.join(",");
+}
+
+function buildSmsSearchOr(term: string): string {
+  const escaped = escapeIlike(term);
+  const clauses = [
+    `body.ilike.%${escaped}%`,
+    `error.ilike.%${escaped}%`,
+    `sender.ilike.%${escaped}%`,
+    `recipients::text.ilike.%${escaped}%`,
+  ];
+
+  if (/^[0-9a-f-]{36}$/i.test(term)) {
+    clauses.push(`id.eq.${term}`);
+  }
+
+  if (term.includes("@")) {
+    const emailLiteral = term.replace(/"/g, '\\"');
+    clauses.push(`recipients.cs.["${emailLiteral}"]`);
+  }
+
+  return clauses.join(",");
+}
+
 function applyEmailSearch<T>(query: FilterableQuery<T>, q: string): T {
   const term = q.trim();
   if (!term) {
     return query as unknown as T;
   }
 
-  const escaped = escapeIlike(term);
-  const isUuid = /^[0-9a-f-]{36}$/i.test(term);
-
-  if (isUuid) {
-    return query.or(
-      `subject.ilike.%${escaped}%,error.ilike.%${escaped}%,id.eq.${term}`,
-    ) as unknown as T;
-  }
-
-  return query.or(
-    `subject.ilike.%${escaped}%,error.ilike.%${escaped}%`,
-  ) as unknown as T;
+  return query.or(buildEmailSearchOr(term)) as unknown as T;
 }
 
 function applySmsSearch<T>(query: FilterableQuery<T>, q: string): T {
@@ -124,18 +156,7 @@ function applySmsSearch<T>(query: FilterableQuery<T>, q: string): T {
     return query as unknown as T;
   }
 
-  const escaped = escapeIlike(term);
-  const isUuid = /^[0-9a-f-]{36}$/i.test(term);
-
-  if (isUuid) {
-    return query.or(
-      `body.ilike.%${escaped}%,error.ilike.%${escaped}%,id.eq.${term}`,
-    ) as unknown as T;
-  }
-
-  return query.or(
-    `body.ilike.%${escaped}%,error.ilike.%${escaped}%`,
-  ) as unknown as T;
+  return query.or(buildSmsSearchOr(term)) as unknown as T;
 }
 
 function applyEmailFilters<T>(
