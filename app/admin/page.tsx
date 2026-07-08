@@ -35,6 +35,7 @@ type SearchParams = Promise<{
   secret?: string;
   error?: string;
   canceled?: string;
+  sent?: string;
   channel?: string;
   status?: string;
   tenant?: string;
@@ -46,7 +47,7 @@ type SearchParams = Promise<{
 }>;
 
 const EMAIL_SELECT =
-  "id, tenant_id, status, subject, from_email, recipients, sent_count, failed_count, error, send_at, created_at, sent_at, updated_at, idempotency_key";
+  "id, tenant_id, status, subject, html, from_email, recipients, sent_count, failed_count, error, send_at, created_at, sent_at, updated_at, idempotency_key";
 
 const SMS_SELECT =
   "id, tenant_id, status, body, sender, recipients, sent_count, failed_count, error, send_at, updated_at, created_at";
@@ -70,6 +71,31 @@ function sumSentCount(jobs: Array<{ sent_count: number; status: string }>): numb
   return jobs
     .filter((job) => job.status === "sent" || job.status === "partial")
     .reduce((total, job) => total + job.sent_count, 0);
+}
+
+function buildReturnQuery(
+  params: Record<string, string | undefined>,
+): string {
+  const search = new URLSearchParams();
+
+  for (const key of [
+    "channel",
+    "status",
+    "tenant",
+    "period",
+    "q",
+    "page",
+    "sort",
+    "sortDir",
+  ] as const) {
+    const value = params[key];
+
+    if (value) {
+      search.set(key, value);
+    }
+  }
+
+  return search.toString();
 }
 
 async function authorizeAdmin(searchParams: SearchParams): Promise<boolean> {
@@ -101,6 +127,8 @@ export default async function AdminPage({
   const jobFilters = parseJobListFilters(params);
   const flashError = params.error ? decodeURIComponent(params.error) : null;
   const canceled = params.canceled;
+  const sent = params.sent;
+  const returnQuery = buildReturnQuery(params);
 
   if (!authorized) {
     return (
@@ -297,6 +325,12 @@ export default async function AdminPage({
           </section>
         ) : null}
 
+        {sent === "email" || sent === "sms" ? (
+          <section className={styles.successBanner}>
+            {sent === "email" ? "Email" : "SMS"} sent immediately.
+          </section>
+        ) : null}
+
         {channel === "all" ? (
           <>
             <ChannelOverview
@@ -382,9 +416,10 @@ export default async function AdminPage({
                     tenantIdToSlug={tenantIdToSlug}
                     deliveryStats={deliveryStats}
                     emptyMessage="No email jobs match your filters."
-                    showCancel
+                    showActions
                     showJobId
                     channel="email"
+                    returnQuery={returnQuery}
                   />
                   <JobsPagination
                     channel="email"
@@ -442,9 +477,10 @@ export default async function AdminPage({
                         ? "SMS tables missing — run migration 006_sms.sql"
                         : "No SMS jobs match your filters."
                     }
-                    showCancel
+                    showActions
                     showJobId
                     channel="sms"
+                    returnQuery={returnQuery}
                   />
                   <JobsPagination
                     channel="sms"
@@ -471,8 +507,9 @@ export default async function AdminPage({
                 deliveryStats={deliveryStats}
                 emptyMessage="No pending email jobs."
                 compact
-                showCancel
+                showActions
                 channel={channel}
+                returnQuery={returnQuery}
               />
             </SectionBlock>
             <SectionBlock
@@ -490,8 +527,9 @@ export default async function AdminPage({
                     : "No pending SMS jobs."
                 }
                 compact
-                showCancel
+                showActions
                 channel={channel}
+                returnQuery={returnQuery}
               />
             </SectionBlock>
           </div>
@@ -511,6 +549,7 @@ export default async function AdminPage({
                   deliveryStats={deliveryStats}
                   emptyMessage="No failed email jobs."
                   compact
+                  returnQuery={returnQuery}
                 />
                 <p className={styles.sectionFooterLink}>
                   <Link
@@ -533,6 +572,7 @@ export default async function AdminPage({
                   tenantIdToSlug={tenantIdToSlug}
                   emptyMessage="No failed SMS jobs."
                   compact
+                  returnQuery={returnQuery}
                 />
                 <p className={styles.sectionFooterLink}>
                   <Link

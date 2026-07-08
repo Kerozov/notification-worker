@@ -51,6 +51,104 @@ function adminRedirect(channel: string, params: Record<string, string>): void {
   redirect(`/admin?${search.toString()}`);
 }
 
+function adminRedirectFromForm(formData: FormData, params: Record<string, string>): void {
+  const channel = String(formData.get("channel") ?? "all");
+  const returnQuery = String(formData.get("returnQuery") ?? "").trim();
+
+  if (returnQuery) {
+    const search = new URLSearchParams(returnQuery);
+
+    for (const [key, value] of Object.entries(params)) {
+      search.set(key, value);
+    }
+
+    redirect(`/admin?${search.toString()}`);
+    return;
+  }
+
+  adminRedirect(channel, params);
+}
+
+export async function sendScheduledEmailJob(formData: FormData): Promise<void> {
+  await requireAdmin();
+
+  const jobId = String(formData.get("jobId") ?? "");
+  const channel = String(formData.get("channel") ?? "all");
+
+  if (!jobId) {
+    adminRedirectFromForm(formData, { error: "missing-job" });
+  }
+
+  let errorMessage: string | null = null;
+  let sent = false;
+
+  try {
+    const { processJobById } = await import("@/lib/jobs/process");
+    const result = await processJobById(jobId);
+
+    if (!result) {
+      errorMessage =
+        "Job not found or not pending — only scheduled jobs can be sent now";
+    } else if (result.status === "failed") {
+      errorMessage = result.errors?.join("; ") ?? "Send failed";
+    } else {
+      sent = true;
+    }
+  } catch (error) {
+    errorMessage =
+      error instanceof Error ? error.message : "Failed to send email job";
+  }
+
+  if (errorMessage) {
+    adminRedirectFromForm(formData, { error: errorMessage });
+  }
+
+  if (sent) {
+    revalidatePath("/admin");
+    adminRedirectFromForm(formData, { sent: "email" });
+  }
+}
+
+export async function sendScheduledSmsJob(formData: FormData): Promise<void> {
+  await requireAdmin();
+
+  const jobId = String(formData.get("jobId") ?? "");
+  const channel = String(formData.get("channel") ?? "all");
+
+  if (!jobId) {
+    adminRedirectFromForm(formData, { error: "missing-job" });
+  }
+
+  let errorMessage: string | null = null;
+  let sent = false;
+
+  try {
+    const { processSmsJobById } = await import("@/lib/jobs/process-sms");
+    const result = await processSmsJobById(jobId);
+
+    if (!result) {
+      errorMessage =
+        "Job not found or not pending — only scheduled jobs can be sent now";
+    } else if (result.status === "failed") {
+      errorMessage = result.errors?.join("; ") ?? "Send failed";
+    } else {
+      sent = true;
+    }
+  } catch (error) {
+    errorMessage =
+      error instanceof Error ? error.message : "Failed to send SMS job";
+  }
+
+  if (errorMessage) {
+    adminRedirectFromForm(formData, { error: errorMessage });
+  }
+
+  if (sent) {
+    revalidatePath("/admin");
+    adminRedirectFromForm(formData, { sent: "sms" });
+  }
+}
+
 export async function cancelScheduledEmailJob(formData: FormData): Promise<void> {
   await requireAdmin();
 
@@ -58,7 +156,7 @@ export async function cancelScheduledEmailJob(formData: FormData): Promise<void>
   const channel = String(formData.get("channel") ?? "all");
 
   if (!jobId) {
-    adminRedirect(channel, { error: "missing-job" });
+    adminRedirectFromForm(formData, { error: "missing-job" });
   }
 
   let errorMessage: string | null = null;
@@ -79,12 +177,12 @@ export async function cancelScheduledEmailJob(formData: FormData): Promise<void>
   }
 
   if (errorMessage) {
-    adminRedirect(channel, { error: errorMessage });
+    adminRedirectFromForm(formData, { error: errorMessage });
   }
 
   if (canceled) {
     revalidatePath("/admin");
-    adminRedirect(channel, { canceled: "email" });
+    adminRedirectFromForm(formData, { canceled: "email" });
   }
 }
 
@@ -95,7 +193,7 @@ export async function cancelScheduledSmsJob(formData: FormData): Promise<void> {
   const channel = String(formData.get("channel") ?? "all");
 
   if (!jobId) {
-    adminRedirect(channel, { error: "missing-job" });
+    adminRedirectFromForm(formData, { error: "missing-job" });
   }
 
   let errorMessage: string | null = null;
@@ -116,12 +214,12 @@ export async function cancelScheduledSmsJob(formData: FormData): Promise<void> {
   }
 
   if (errorMessage) {
-    adminRedirect(channel, { error: errorMessage });
+    adminRedirectFromForm(formData, { error: errorMessage });
   }
 
   if (canceled) {
     revalidatePath("/admin");
-    adminRedirect(channel, { canceled: "sms" });
+    adminRedirectFromForm(formData, { canceled: "sms" });
   }
 }
 

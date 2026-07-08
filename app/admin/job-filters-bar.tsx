@@ -175,60 +175,71 @@ export function JobsPagination({
   total: number;
 }) {
   const totalPages = Math.max(1, Math.ceil(total / JOBS_PAGE_SIZE));
+  const start = total === 0 ? 0 : (filters.page - 1) * JOBS_PAGE_SIZE + 1;
+  const end = Math.min(filters.page * JOBS_PAGE_SIZE, total);
+  const pages = buildPageNumbers(filters.page, totalPages);
 
-  if (totalPages <= 1) {
+  if (total === 0) {
     return null;
   }
 
-  const pages = buildPageNumbers(filters.page, totalPages);
-
   return (
     <nav className={styles.pagination} aria-label="Job list pagination">
-      {filters.page > 1 ? (
-        <Link
-          className={styles.pageLink}
-          href={buildAdminJobsHref(channel, filters, {
-            page: filters.page - 1,
-          })}
-        >
-          ← Prev
-        </Link>
-      ) : (
-        <span className={styles.pageLinkDisabled}>← Prev</span>
-      )}
+      <span className={styles.paginationSummary}>
+        Showing {start}–{end} of {total}
+      </span>
 
-      <div className={styles.pageNumbers}>
-        {pages.map((page, index) =>
-          page === "…" ? (
-            <span key={`gap-${index}`} className={styles.pageEllipsis}>
-              …
-            </span>
-          ) : (
+      {totalPages > 1 ? (
+        <>
+          {filters.page > 1 ? (
             <Link
-              key={page}
-              href={buildAdminJobsHref(channel, filters, { page })}
-              className={`${styles.pageNumber} ${
-                page === filters.page ? styles.pageNumberActive : ""
-              }`}
-              aria-current={page === filters.page ? "page" : undefined}
+              className={styles.pageLink}
+              href={buildAdminJobsHref(channel, filters, {
+                page: filters.page - 1,
+              })}
             >
-              {page}
+              ← Prev
             </Link>
-          ),
-        )}
-      </div>
+          ) : (
+            <span className={styles.pageLinkDisabled}>← Prev</span>
+          )}
 
-      {filters.page < totalPages ? (
-        <Link
-          className={styles.pageLink}
-          href={buildAdminJobsHref(channel, filters, {
-            page: filters.page + 1,
-          })}
-        >
-          Next →
-        </Link>
+          <div className={styles.pageNumbers}>
+            {pages.map((page, index) =>
+              page === "…" ? (
+                <span key={`gap-${index}`} className={styles.pageEllipsis}>
+                  …
+                </span>
+              ) : (
+                <Link
+                  key={page}
+                  href={buildAdminJobsHref(channel, filters, { page })}
+                  className={`${styles.pageNumber} ${
+                    page === filters.page ? styles.pageNumberActive : ""
+                  }`}
+                  aria-current={page === filters.page ? "page" : undefined}
+                >
+                  {page}
+                </Link>
+              ),
+            )}
+          </div>
+
+          {filters.page < totalPages ? (
+            <Link
+              className={styles.pageLink}
+              href={buildAdminJobsHref(channel, filters, {
+                page: filters.page + 1,
+              })}
+            >
+              Next →
+            </Link>
+          ) : (
+            <span className={styles.pageLinkDisabled}>Next →</span>
+          )}
+        </>
       ) : (
-        <span className={styles.pageLinkDisabled}>Next →</span>
+        <span className={styles.pageLinkDisabled}>Page 1 of 1</span>
       )}
     </nav>
   );

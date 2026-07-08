@@ -1,10 +1,7 @@
 import { Fragment, type ReactNode } from "react";
 import Link from "next/link";
 import styles from "./admin.module.css";
-import {
-  cancelScheduledEmailJob,
-  cancelScheduledSmsJob,
-} from "./actions";
+import { EmailJobActions, SmsJobActions } from "./job-actions";
 import {
   formatDateTime,
   formatRecipients,
@@ -26,6 +23,7 @@ export type EmailJobRow = {
   tenant_id: string;
   status: string;
   subject: string;
+  html: string;
   from_email: string | null;
   recipients: string[];
   sent_count: number;
@@ -195,47 +193,26 @@ function engagementLine(counts: ReturnType<typeof getJobDisplayCounts>): string 
   return `${counts.opened} open · ${counts.clicked} click · ${counts.complained} spam`;
 }
 
-function CancelJobForm({
-  jobId,
-  channel,
-  kind,
-}: {
-  jobId: string;
-  channel: ChannelView;
-  kind: "email" | "sms";
-}) {
-  const action =
-    kind === "email" ? cancelScheduledEmailJob : cancelScheduledSmsJob;
-
-  return (
-    <form className={styles.cancelForm} action={action}>
-      <input type="hidden" name="jobId" value={jobId} />
-      <input type="hidden" name="channel" value={channel} />
-      <button className={styles.cancelButton} type="submit">
-        Cancel
-      </button>
-    </form>
-  );
-}
-
 export function EmailJobsTable({
   jobs,
   tenantIdToSlug,
   deliveryStats,
   emptyMessage,
   compact = false,
-  showCancel = false,
+  showActions = false,
   channel = "all",
   showJobId = false,
+  returnQuery = "",
 }: {
   jobs: EmailJobRow[];
   tenantIdToSlug: Map<string, string>;
   deliveryStats: Map<string, JobDeliveryStats>;
   emptyMessage: string;
   compact?: boolean;
-  showCancel?: boolean;
+  showActions?: boolean;
   channel?: ChannelView;
   showJobId?: boolean;
+  returnQuery?: string;
 }) {
   if (jobs.length === 0) {
     return <div className={styles.empty}>{emptyMessage}</div>;
@@ -256,7 +233,7 @@ export function EmailJobsTable({
             {!compact ? <th>Engagement</th> : null}
             <th>Created</th>
             {!compact ? <th>Send at</th> : null}
-            {showCancel || !compact ? <th></th> : null}
+            <th className={styles.actionsHead}>Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -272,7 +249,7 @@ export function EmailJobsTable({
 
             return (
               <Fragment key={job.id}>
-                <tr>
+                <tr className={styles.dataRow}>
                   <td>
                     <StatusBadge status={displayStatus} />
                   </td>
@@ -311,16 +288,25 @@ export function EmailJobsTable({
                       </span>
                     </td>
                   ) : null}
-                  {showCancel || !compact ? (
-                    <td className={styles.actionsCell}>
-                      {showCancel && job.status === "pending" ? (
-                        <CancelJobForm
-                          jobId={job.id}
-                          channel={channel}
-                          kind="email"
-                        />
-                      ) : null}
-                      {!compact && !showCancel ? (
+                  <td className={styles.actionsCell}>
+                    <div className={styles.actionStack}>
+                      <EmailJobActions
+                        job={{
+                          id: job.id,
+                          subject: job.subject,
+                          html: job.html,
+                          from_email: job.from_email,
+                          recipients: job.recipients,
+                          send_at: job.send_at,
+                          status: job.status,
+                        }}
+                        channel={channel}
+                        returnQuery={returnQuery}
+                        showSendNow={showActions}
+                      />
+                      {!compact &&
+                      !showActions &&
+                      (job.status === "sent" || job.status === "partial") ? (
                         <Link
                           className={styles.actionLink}
                           href={`/admin/resend/${job.id}`}
@@ -328,8 +314,8 @@ export function EmailJobsTable({
                           Resend
                         </Link>
                       ) : null}
-                    </td>
-                  ) : null}
+                    </div>
+                  </td>
                 </tr>
                 {hasError && !compact ? (
                   <tr className={styles.errorRow}>
@@ -353,17 +339,19 @@ export function SmsJobsTable({
   tenantIdToSlug,
   emptyMessage,
   compact = false,
-  showCancel = false,
+  showActions = false,
   channel = "all",
   showJobId = false,
+  returnQuery = "",
 }: {
   jobs: SmsJobRow[];
   tenantIdToSlug: Map<string, string>;
   emptyMessage: string;
   compact?: boolean;
-  showCancel?: boolean;
+  showActions?: boolean;
   channel?: ChannelView;
   showJobId?: boolean;
+  returnQuery?: string;
 }) {
   if (jobs.length === 0) {
     return <div className={styles.empty}>{emptyMessage}</div>;
@@ -383,7 +371,7 @@ export function SmsJobsTable({
             <th>Result</th>
             <th>Created</th>
             {!compact ? <th>Send at</th> : null}
-            {showCancel || !compact ? <th></th> : null}
+            <th className={styles.actionsHead}>Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -396,7 +384,7 @@ export function SmsJobsTable({
 
             return (
               <Fragment key={job.id}>
-                <tr>
+                <tr className={styles.dataRow}>
                   <td>
                     <StatusBadge status={job.status} />
                   </td>
@@ -430,17 +418,21 @@ export function SmsJobsTable({
                       </span>
                     </td>
                   ) : null}
-                  {showCancel || !compact ? (
-                    <td className={styles.actionsCell}>
-                      {showCancel && job.status === "pending" ? (
-                        <CancelJobForm
-                          jobId={job.id}
-                          channel={channel}
-                          kind="sms"
-                        />
-                      ) : null}
-                    </td>
-                  ) : null}
+                  <td className={styles.actionsCell}>
+                    <SmsJobActions
+                      job={{
+                        id: job.id,
+                        body: job.body,
+                        sender: job.sender,
+                        recipients: job.recipients,
+                        send_at: job.send_at,
+                        status: job.status,
+                      }}
+                      channel={channel}
+                      returnQuery={returnQuery}
+                      showSendNow={showActions}
+                    />
+                  </td>
                 </tr>
                 {hasError && !compact ? (
                   <tr className={styles.errorRow}>

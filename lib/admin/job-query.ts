@@ -1,7 +1,7 @@
 import { getSupabaseAdmin } from "@/lib/db/supabase";
 
 export const EMAIL_JOB_SELECT =
-  "id, tenant_id, status, subject, from_email, recipients, sent_count, failed_count, error, send_at, created_at, sent_at, updated_at, idempotency_key";
+  "id, tenant_id, status, subject, html, from_email, recipients, sent_count, failed_count, error, send_at, created_at, sent_at, updated_at, idempotency_key";
 
 export const SMS_JOB_SELECT =
   "id, tenant_id, status, body, sender, recipients, sent_count, failed_count, error, send_at, updated_at, created_at, sent_at";
