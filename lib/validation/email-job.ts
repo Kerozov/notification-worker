@@ -27,8 +27,15 @@ export const scheduleJobBodySchema = sendJobBodySchema.extend({
   sendAt: z.string().datetime(),
 });
 
+export const batchJobsBodySchema = z.object({
+  from: fromAddressSchema.optional(),
+  replyTo: z.string().email().optional(),
+  jobs: z.array(scheduleJobBodySchema).min(1).max(30),
+});
+
 export type SendJobBody = z.infer<typeof sendJobBodySchema>;
 export type ScheduleJobBody = z.infer<typeof scheduleJobBodySchema>;
+export type BatchJobsBody = z.infer<typeof batchJobsBodySchema>;
 
 const EMAIL_REGEX =
   /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
