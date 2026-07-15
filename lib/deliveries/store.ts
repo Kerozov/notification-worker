@@ -90,32 +90,43 @@ export async function recordDeliveryResults(
   tenantId: string,
   results: DeliverySendResult[],
 ): Promise<void> {
+  if (results.length === 0) {
+    return;
+  }
+
   const supabase = getSupabaseAdmin();
   const now = new Date().toISOString();
 
+  // Deduplicate by recipient (last write wins) so a single batch upsert never
+  // tries to touch the same (job_id, recipient) row twice, which Postgres
+  // rejects with "ON CONFLICT DO UPDATE command cannot affect row a second time".
+  const rowsByRecipient = new Map<string, Record<string, unknown>>();
+
   for (const result of results) {
+    const recipient = normalizeEmail(result.recipient);
     const status: DeliveryStatus = result.error ? "failed" : "sent";
 
-    const { error } = await supabase.from("email_deliveries").upsert(
-      {
-        job_id: jobId,
-        tenant_id: tenantId,
-        recipient: normalizeEmail(result.recipient),
-        provider: "zeptomail",
-        provider_message_id: result.providerMessageId ?? null,
-        status,
-        error: result.error ?? null,
-        sent_at: result.error ? null : now,
-        updated_at: now,
-      },
-      { onConflict: "job_id,recipient" },
-    );
+    rowsByRecipient.set(recipient, {
+      job_id: jobId,
+      tenant_id: tenantId,
+      recipient,
+      provider: "zeptomail",
+      provider_message_id: result.providerMessageId ?? null,
+      status,
+      error: result.error ?? null,
+      sent_at: result.error ? null : now,
+      updated_at: now,
+    });
+  }
 
-    if (error) {
-      throw new Error(
-        `Failed to record delivery (${result.recipient}): ${error.message}. Run migrations 003–005 in Supabase.`,
-      );
-    }
+  const { error } = await supabase
+    .from("email_deliveries")
+    .upsert([...rowsByRecipient.values()], { onConflict: "job_id,recipient" });
+
+  if (error) {
+    throw new Error(
+      `Failed to record deliveries for job ${jobId}: ${error.message}. Run migrations 003–005 in Supabase.`,
+    );
   }
 }
 

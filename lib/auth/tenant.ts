@@ -1,6 +1,7 @@
 import { createHash, timingSafeEqual } from "crypto";
 import { NextRequest } from "next/server";
 import { asTenant, getSupabaseAdmin, Tenant } from "@/lib/db/supabase";
+import { cacheTenant, getCachedTenantByHash } from "@/lib/tenants/cache";
 
 export function hashApiKey(apiKey: string): string {
   return createHash("sha256").update(apiKey).digest("hex");
@@ -38,6 +39,13 @@ export async function resolveTenantFromRequest(
   }
 
   const apiKeyHash = hashApiKey(apiKey);
+
+  const cached = getCachedTenantByHash(apiKeyHash);
+  if (cached) {
+    // Cache is keyed by the exact hash, so the equality check already holds.
+    return cached;
+  }
+
   const supabase = getSupabaseAdmin();
 
   const { data, error } = await supabase
@@ -56,6 +64,7 @@ export async function resolveTenantFromRequest(
     return null;
   }
 
+  cacheTenant(tenant);
   return tenant;
 }
 

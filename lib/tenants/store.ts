@@ -1,6 +1,7 @@
 import { randomBytes } from "crypto";
 import { hashApiKey } from "@/lib/auth/tenant";
 import { asTenant, getSupabaseAdmin, Tenant } from "@/lib/db/supabase";
+import { clearTenantCache } from "@/lib/tenants/cache";
 
 export type TenantAdminRow = {
   id: string;
@@ -201,6 +202,7 @@ export async function updateTenant(
     throw new Error("Client not found");
   }
 
+  clearTenantCache();
   return asTenant(data);
 }
 
@@ -225,6 +227,7 @@ export async function rotateTenantApiKey(
     throw new Error("Client not found");
   }
 
+  clearTenantCache();
   return { tenant: asTenant(data), apiKey };
 }
 
@@ -236,4 +239,6 @@ export async function deleteTenantBySlug(slug: string): Promise<void> {
   if (error) {
     throw new Error(error.message);
   }
+
+  clearTenantCache();
 }

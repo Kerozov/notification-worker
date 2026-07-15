@@ -9,6 +9,7 @@ import { sendEmailBatch } from "@/lib/email/send";
 import { recordDeliveryResults, recordInvalidRecipients } from "@/lib/deliveries/store";
 import { resolveDisplayStatus } from "@/lib/deliveries/stats";
 import { normalizeRecipients } from "@/lib/validation/email-job";
+import { cacheTenant, getCachedTenantById } from "@/lib/tenants/cache";
 
 export type ProcessJobResult = {
   jobId: string;
@@ -219,6 +220,11 @@ export async function claimJob(jobId: string): Promise<EmailJob | null> {
 }
 
 async function getTenantById(tenantId: string): Promise<Tenant | null> {
+  const cached = getCachedTenantById(tenantId);
+  if (cached) {
+    return cached;
+  }
+
   const supabase = getSupabaseAdmin();
 
   const { data, error } = await supabase
@@ -231,7 +237,13 @@ async function getTenantById(tenantId: string): Promise<Tenant | null> {
     throw new Error(error.message);
   }
 
-  return data ? asTenant(data) : null;
+  if (!data) {
+    return null;
+  }
+
+  const tenant = asTenant(data);
+  cacheTenant(tenant);
+  return tenant;
 }
 
 export async function processClaimedJob(

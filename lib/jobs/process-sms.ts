@@ -5,6 +5,7 @@ import {
   recordSmsDeliveryResults,
 } from "@/lib/sms/deliveries/store";
 import { normalizePhoneNumbers } from "@/lib/validation/sms-job";
+import { cacheTenant, getCachedTenantById } from "@/lib/tenants/cache";
 
 export type ProcessSmsJobResult = {
   jobId: string;
@@ -188,6 +189,11 @@ export async function createSmsJob(
 }
 
 async function getTenantById(tenantId: string): Promise<Tenant | null> {
+  const cached = getCachedTenantById(tenantId);
+  if (cached) {
+    return cached;
+  }
+
   const supabase = getSupabaseAdmin();
 
   const { data, error } = await supabase
@@ -200,7 +206,13 @@ async function getTenantById(tenantId: string): Promise<Tenant | null> {
     throw new Error(error.message);
   }
 
-  return data as Tenant | null;
+  if (!data) {
+    return null;
+  }
+
+  const tenant = data as Tenant;
+  cacheTenant(tenant);
+  return tenant;
 }
 
 export async function claimSmsJob(jobId: string): Promise<SmsJob | null> {

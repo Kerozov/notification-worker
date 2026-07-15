@@ -62,32 +62,42 @@ export async function recordSmsDeliveryResults(
   tenantId: string,
   results: SmsDeliverySendResult[],
 ): Promise<void> {
+  if (results.length === 0) {
+    return;
+  }
+
   const supabase = getSupabaseAdmin();
   const now = new Date().toISOString();
 
+  // Deduplicate by recipient (last write wins) so a single batch upsert never
+  // touches the same (job_id, recipient) row twice in one statement.
+  const rowsByRecipient = new Map<string, Record<string, unknown>>();
+
   for (const result of results) {
+    const recipient = normalizePhone(result.recipient);
     const status: SmsDeliveryStatus = result.error ? "failed" : "sent";
 
-    const { error } = await supabase.from("sms_deliveries").upsert(
-      {
-        job_id: jobId,
-        tenant_id: tenantId,
-        recipient: normalizePhone(result.recipient),
-        provider: "notifier",
-        provider_message_id: result.providerMessageId ?? null,
-        status,
-        error: result.error ?? null,
-        sent_at: result.error ? null : now,
-        updated_at: now,
-      },
-      { onConflict: "job_id,recipient" },
-    );
+    rowsByRecipient.set(recipient, {
+      job_id: jobId,
+      tenant_id: tenantId,
+      recipient,
+      provider: "notifier",
+      provider_message_id: result.providerMessageId ?? null,
+      status,
+      error: result.error ?? null,
+      sent_at: result.error ? null : now,
+      updated_at: now,
+    });
+  }
 
-    if (error) {
-      throw new Error(
-        `Failed to record SMS delivery (${result.recipient}): ${error.message}. Run migration 006_sms.sql in Supabase.`,
-      );
-    }
+  const { error } = await supabase
+    .from("sms_deliveries")
+    .upsert([...rowsByRecipient.values()], { onConflict: "job_id,recipient" });
+
+  if (error) {
+    throw new Error(
+      `Failed to record SMS deliveries for job ${jobId}: ${error.message}. Run migration 006_sms.sql in Supabase.`,
+    );
   }
 }
 

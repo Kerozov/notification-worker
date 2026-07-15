@@ -1,6 +1,16 @@
 import { getSupabaseAdmin } from "@/lib/db/supabase";
 
-const MAX_JOBS_PER_MINUTE = 10;
+// Per-tenant guard against runaway loops. Campaigns create one job per
+// personalized recipient, so the old default of 10 blocked any real send.
+// Configurable via env; defaults high enough for first-party campaigns.
+const DEFAULT_MAX_JOBS_PER_MINUTE = 500;
+
+function getMaxJobsPerMinute(): number {
+  const parsed = Number(process.env.MAX_JOBS_PER_MINUTE);
+  return Number.isFinite(parsed) && parsed > 0
+    ? parsed
+    : DEFAULT_MAX_JOBS_PER_MINUTE;
+}
 
 export async function checkTenantJobRateLimit(
   tenantId: string,
@@ -29,7 +39,7 @@ export async function checkTenantJobRateLimit(
   const smsTotal = smsCount.error ? 0 : (smsCount.count ?? 0);
   const total = (emailCount.count ?? 0) + smsTotal;
 
-  if (total >= MAX_JOBS_PER_MINUTE) {
+  if (total >= getMaxJobsPerMinute()) {
     return { allowed: false, retryAfterSeconds: 60 };
   }
 
