@@ -154,17 +154,26 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
   try {
     const job = await cancelPendingJob(tenant.id, id);
 
-    if (!job) {
-      return Response.json(
-        { error: "Job not found or not cancelable" },
-        { status: 404 },
-      );
+    if (job) {
+      return Response.json({
+        jobId: job.id,
+        status: job.status,
+      });
     }
 
-    return Response.json({
-      jobId: job.id,
-      status: job.status,
-    });
+    const existing = await getJobForTenant(tenant.id, id);
+    if (!existing) {
+      return Response.json({ error: "Job not found" }, { status: 404 });
+    }
+
+    // Already sending or already sent — caller must not mark the delivery canceled.
+    return Response.json(
+      {
+        error: "Job not cancelable",
+        status: existing.status,
+      },
+      { status: 409 },
+    );
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Failed to cancel job";
