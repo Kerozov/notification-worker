@@ -2,12 +2,22 @@
 
 ## Option A — Supabase SQL Editor (препоръчително)
 
-1. Отвори [Supabase Dashboard](https://supabase.com/dashboard) → твоя проект
+1. Отвори **worker** проекта в [Supabase Dashboard](https://supabase.com/dashboard)
 2. **SQL Editor** → **New query**
-3. Копирай целия файл [`setup.sql`](./setup.sql)
+3. Копирай целия файл [`setup-all.sql`](./setup-all.sql)
 4. **Run**
 
-Подходящо за **нов** проект или пълен fresh start.
+Безопасно за повторно пускане: създава/надгражда worker таблиците, не трие jobs и tenants.
+
+---
+
+## Ако по грешка си пуснал Zara setup в worker базата
+
+1. Отвори **worker** проекта (не Zara)
+2. Пусни [`CLEANUP_ZARA_SETUP.sql`](./CLEANUP_ZARA_SETUP.sql)
+3. После пусни [`setup-all.sql`](./setup-all.sql)
+
+Cleanup-ът маха site таблиците (`subscribers`, `automations`, кампании, Zoom, …) и bucket-ите `product-images` / `automation-attachments`. **Не пипа** `tenants`, `email_jobs`, `sms_jobs`, deliveries, `worker_meta`. Ако `tenants` липсва, скриптът спира — за да не се пусне по грешка в Zara.
 
 ---
 
@@ -64,14 +74,13 @@ bun run db:verify
 
 ## Вече имаш база (partial migrations)
 
-Не пускай целия `setup.sql` — ще гърми на съществуващи таблици.
+Не пускай отделните 001–008 ако вече си минал през `setup-all.sql`.
 
-Пусни **само липсващите** файлове от `supabase/migrations/`:
+Ако липсват само нови колони, пак пусни `setup-all.sql` — `ADD COLUMN IF NOT EXISTS` е безопасен.
+
+Или само липсващия файл от `supabase/migrations/`:
 
 ```
-005_delivery_metrics.sql   ← clicks, spam
-006_sms.sql                ← SMS
-007_tenant_notifier_key.sql
 008_email_job_attachments.sql
 ```
 
@@ -83,8 +92,9 @@ bun run db:verify
 
 | Грешка | Решение |
 |--------|---------|
-| `column notifier_api_key does not exist` | Пусни 007 или setup.sql |
-| `column attachments does not exist` | Пусни 008 |
-| `relation sms_jobs does not exist` | Пусни 006 |
-| `clicked_at does not exist` | Пусни 005 |
+| `column notifier_api_key does not exist` | Пусни setup-all.sql |
+| `column attachments does not exist` | Пусни setup-all.sql или 008 |
+| `relation sms_jobs does not exist` | Пусни setup-all.sql |
+| `clicked_at does not exist` | Пусни setup-all.sql |
+| Zara таблици в worker проекта | Пусни CLEANUP_ZARA_SETUP.sql |
 | Admin crash on load | `bun run db:verify` и попълни липсващите |

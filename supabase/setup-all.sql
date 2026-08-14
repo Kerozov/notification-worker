@@ -1,6 +1,3 @@
--- Canonical paste file: setup-all.sql (idempotent, 001–008).
--- This copy stays in sync for older docs that still say setup.sql.
-
 -- =====================================================================
 -- Notification Worker — пълна схема (обединява 001–008).
 -- Пусни в Supabase → SQL Editor.
@@ -9,10 +6,16 @@
 --   • не трие worker таблици и данни;
 --   • не пипа tenant API ключове и job история.
 --
+-- Таблици: tenants, email_jobs, email_deliveries,
+--          sms_jobs, sms_deliveries, worker_meta
+--
 -- Ако по грешка си пуснал website-zara setup тук:
 --   първо CLEANUP_ZARA_SETUP.sql, после този файл.
 -- =====================================================================
 
+-- ---------------------------------------------------------------------
+-- 001 init
+-- ---------------------------------------------------------------------
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 CREATE TABLE IF NOT EXISTS tenants (
@@ -59,12 +62,20 @@ CREATE TABLE IF NOT EXISTS worker_meta (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
+
+-- ---------------------------------------------------------------------
+-- 002 from address
+-- ---------------------------------------------------------------------
 ALTER TABLE tenants
   ADD COLUMN IF NOT EXISTS default_from text;
 
 ALTER TABLE email_jobs
   ADD COLUMN IF NOT EXISTS from_email text;
 
+
+-- ---------------------------------------------------------------------
+-- 003 + 004 + 005 email_deliveries (ZeptoMail)
+-- ---------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS email_deliveries (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   job_id uuid NOT NULL REFERENCES email_jobs(id) ON DELETE CASCADE,
@@ -88,6 +99,48 @@ CREATE TABLE IF NOT EXISTS email_deliveries (
   updated_at timestamptz NOT NULL DEFAULT now(),
   UNIQUE (job_id, recipient)
 );
+
+-- 004 renamed resend_email_id → provider_message_id. CREATE IF NOT EXISTS cannot
+-- rename, so a database that still has the old column would keep both and the
+-- worker would write only the new one.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'email_deliveries'
+      AND column_name = 'resend_email_id'
+  ) THEN
+    IF NOT EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'email_deliveries'
+        AND column_name = 'provider_message_id'
+    ) THEN
+      ALTER TABLE email_deliveries RENAME COLUMN resend_email_id TO provider_message_id;
+    ELSE
+      UPDATE email_deliveries
+        SET provider_message_id = resend_email_id
+        WHERE provider_message_id IS NULL AND resend_email_id IS NOT NULL;
+      ALTER TABLE email_deliveries DROP COLUMN resend_email_id;
+    END IF;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'public'
+      AND c.relname = 'email_deliveries_resend_email_id_idx'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'public'
+      AND c.relname = 'email_deliveries_provider_message_id_idx'
+  ) THEN
+    ALTER INDEX email_deliveries_resend_email_id_idx
+      RENAME TO email_deliveries_provider_message_id_idx;
+  END IF;
+END $$;
 
 ALTER TABLE email_deliveries
   ADD COLUMN IF NOT EXISTS provider_message_id text;
@@ -121,6 +174,10 @@ CREATE INDEX IF NOT EXISTS email_deliveries_clicked_at_idx
   ON email_deliveries (clicked_at)
   WHERE clicked_at IS NOT NULL;
 
+
+-- ---------------------------------------------------------------------
+-- 006 SMS
+-- ---------------------------------------------------------------------
 ALTER TABLE tenants
   ADD COLUMN IF NOT EXISTS default_sms_sender text;
 
@@ -169,12 +226,24 @@ CREATE TABLE IF NOT EXISTS sms_deliveries (
 
 CREATE INDEX IF NOT EXISTS sms_deliveries_job_id_idx ON sms_deliveries (job_id);
 
+
+-- ---------------------------------------------------------------------
+-- 007 tenant notifier key
+-- ---------------------------------------------------------------------
 ALTER TABLE tenants
   ADD COLUMN IF NOT EXISTS notifier_api_key text;
 
+
+-- ---------------------------------------------------------------------
+-- 008 email job attachments
+-- ---------------------------------------------------------------------
 ALTER TABLE email_jobs
   ADD COLUMN IF NOT EXISTS attachments jsonb NOT NULL DEFAULT '[]'::jsonb;
 
+
+-- ---------------------------------------------------------------------
+-- Проверка
+-- ---------------------------------------------------------------------
 SELECT
   'Setup complete: notification-worker schema ready (001–008).' AS result,
   (SELECT count(*) FROM tenants) AS tenants,
