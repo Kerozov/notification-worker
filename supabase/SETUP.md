@@ -23,7 +23,7 @@ SUPABASE_DB_PASSWORD=your-database-password
 
 Password: Supabase → **Project Settings** → **Database** → **Database password**
 
-2. Пусни миграциите по ред (001 → 007):
+2. Пусни миграциите по ред (001 → 008):
 
 ```bash
 bun run db:setup
@@ -72,6 +72,7 @@ bun run db:verify
 005_delivery_metrics.sql   ← clicks, spam
 006_sms.sql                ← SMS
 007_tenant_notifier_key.sql
+008_email_job_attachments.sql
 ```
 
 После: `bun run db:verify`
@@ -83,6 +84,7 @@ bun run db:verify
 | Грешка | Решение |
 |--------|---------|
 | `column notifier_api_key does not exist` | Пусни 007 или setup.sql |
+| `column attachments does not exist` | Пусни 008 |
 | `relation sms_jobs does not exist` | Пусни 006 |
 | `clicked_at does not exist` | Пусни 005 |
 | Admin crash on load | `bun run db:verify` и попълни липсващите |

@@ -1,4 +1,5 @@
-import { prepareHtml } from "@/lib/validation/email-job";
+import { loadZeptoAttachments } from "@/lib/email/attachments";
+import { prepareHtml, type EmailAttachment } from "@/lib/validation/email-job";
 import type { DeliverySendResult } from "@/lib/deliveries/store";
 
 const BATCH_SIZE = 50;
@@ -11,6 +12,7 @@ export type SendBatchInput = {
   recipients: string[];
   replyTo?: string | null;
   clientReference: string;
+  attachments?: EmailAttachment[];
 };
 
 export type SendBatchResult = {
@@ -59,6 +61,7 @@ export async function sendEmailBatch(
   const html = prepareHtml(input.html);
   const from = parseAddress(input.from);
   const replyTo = input.replyTo ? parseAddress(input.replyTo) : null;
+  const attachments = await loadZeptoAttachments(input.attachments);
 
   const errors: string[] = [];
   const deliveries: DeliverySendResult[] = [];
@@ -81,6 +84,7 @@ export async function sendEmailBatch(
       track_opens: true,
       track_clicks: true,
       client_reference: input.clientReference,
+      ...(attachments.length > 0 ? { attachments } : {}),
     };
 
     let response: Response;

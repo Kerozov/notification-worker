@@ -5,30 +5,67 @@ import { processJobById } from "@/lib/jobs/process";
 import { processSmsJobById } from "@/lib/jobs/process-sms";
 
 /** If sendAt is this soon, process in the worker — no Trigger.dev run. */
-const IMMEDIATE_WINDOW_MS = 60_000;
+export const IMMEDIATE_WINDOW_MS = 60_000;
 
-export type DispatchMode = "immediate" | "trigger" | "queued";
+export type DispatchMode = "immediate" | "trigger";
+
+export class DelayedDispatchError extends Error {
+  readonly code: "not_configured" | "trigger_failed";
+
+  constructor(
+    message: string,
+    code: "not_configured" | "trigger_failed" = "trigger_failed",
+  ) {
+    super(message);
+    this.name = "DelayedDispatchError";
+    this.code = code;
+  }
+}
+
+export function isImmediateSend(sendAt: Date, now = Date.now()): boolean {
+  return sendAt.getTime() <= now + IMMEDIATE_WINDOW_MS;
+}
+
+export function hasTriggerSecret(): boolean {
+  return Boolean(process.env.TRIGGER_SECRET_KEY?.trim());
+}
+
+/** Delayed jobs need Trigger.dev. Call before creating a pending row. */
+export function assertCanDispatchAt(sendAt: Date): void {
+  if (isImmediateSend(sendAt)) {
+    return;
+  }
+
+  if (!hasTriggerSecret()) {
+    throw new DelayedDispatchError(
+      "Delayed scheduling requires TRIGGER_SECRET_KEY",
+      "not_configured",
+    );
+  }
+}
 
 export async function dispatchScheduledEmailJob(
   jobId: string,
   sendAt: Date,
 ): Promise<{ mode: DispatchMode }> {
-  const delayMs = sendAt.getTime() - Date.now();
-
-  if (delayMs <= IMMEDIATE_WINDOW_MS) {
+  if (isImmediateSend(sendAt)) {
     await processJobById(jobId);
     return { mode: "immediate" };
   }
 
-  if (!process.env.TRIGGER_SECRET_KEY?.trim()) {
-    return { mode: "queued" };
-  }
+  assertCanDispatchAt(sendAt);
 
-  await tasks.trigger<typeof sendEmailJobTask>(
-    "send-email-job",
-    { jobId },
-    { delay: sendAt },
-  );
+  try {
+    await tasks.trigger<typeof sendEmailJobTask>(
+      "send-email-job",
+      { jobId },
+      { delay: sendAt },
+    );
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Trigger.dev request failed";
+    throw new DelayedDispatchError(message, "trigger_failed");
+  }
 
   return { mode: "trigger" };
 }
@@ -37,22 +74,24 @@ export async function dispatchScheduledSmsJob(
   jobId: string,
   sendAt: Date,
 ): Promise<{ mode: DispatchMode }> {
-  const delayMs = sendAt.getTime() - Date.now();
-
-  if (delayMs <= IMMEDIATE_WINDOW_MS) {
+  if (isImmediateSend(sendAt)) {
     await processSmsJobById(jobId);
     return { mode: "immediate" };
   }
 
-  if (!process.env.TRIGGER_SECRET_KEY?.trim()) {
-    return { mode: "queued" };
-  }
+  assertCanDispatchAt(sendAt);
 
-  await tasks.trigger<typeof sendSmsJobTask>(
-    "send-sms-job",
-    { jobId },
-    { delay: sendAt },
-  );
+  try {
+    await tasks.trigger<typeof sendSmsJobTask>(
+      "send-sms-job",
+      { jobId },
+      { delay: sendAt },
+    );
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Trigger.dev request failed";
+    throw new DelayedDispatchError(message, "trigger_failed");
+  }
 
   return { mode: "trigger" };
 }

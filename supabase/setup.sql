@@ -137,3 +137,7 @@ CREATE INDEX IF NOT EXISTS sms_deliveries_job_id_idx ON sms_deliveries (job_id);
 -- ========== 007_tenant_notifier_key.sql ==========
 ALTER TABLE tenants
   ADD COLUMN IF NOT EXISTS notifier_api_key text;
+
+-- ========== 008_email_job_attachments.sql ==========
+ALTER TABLE email_jobs
+  ADD COLUMN IF NOT EXISTS attachments jsonb NOT NULL DEFAULT '[]'::jsonb;

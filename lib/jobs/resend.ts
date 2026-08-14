@@ -26,6 +26,7 @@ export async function resendJobAsNew(
     replyTo: source.reply_to,
     sendAt,
     idempotencyKey: null,
+    attachments: source.attachments,
   };
 
   const { job, invalid } = await createEmailJob(input);

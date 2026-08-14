@@ -1,4 +1,8 @@
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
+import {
+  parseStoredAttachments,
+  type EmailAttachment,
+} from "@/lib/validation/email-job";
 
 export type Tenant = {
   id: string;
@@ -36,6 +40,7 @@ export type EmailJob = {
   created_at: string;
   updated_at: string;
   sent_at: string | null;
+  attachments: EmailAttachment[];
 };
 
 export type SmsJobStatus =
@@ -85,7 +90,11 @@ export function getSupabaseAdmin(): SupabaseClient {
 }
 
 export function asEmailJob(row: Record<string, unknown>): EmailJob {
-  return row as unknown as EmailJob;
+  const job = row as unknown as EmailJob;
+  return {
+    ...job,
+    attachments: parseStoredAttachments(row.attachments),
+  };
 }
 
 export function asSmsJob(row: Record<string, unknown>): SmsJob {

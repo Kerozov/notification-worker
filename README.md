@@ -44,9 +44,8 @@ cp .env.example .env.local
 
 ```
 supabase/migrations/001_init.sql
-supabase/migrations/002_from_address.sql
-supabase/migrations/003_email_deliveries.sql
-supabase/migrations/004_zeptomail.sql
+…
+supabase/migrations/008_email_job_attachments.sql
 ```
 
 3. Install dependencies and seed tenants:
@@ -88,6 +87,7 @@ Body fields:
 - `from` — sender address from the calling app, e.g. `hello@yourdomain.com` or `Brand Name <hello@yourdomain.com>` (must be a ZeptoMail-verified domain)
 - If omitted, worker uses tenant `default_from` from the database (set via seed env)
 - `replyTo` — optional; falls back to tenant `default_reply_to`
+- `attachments` — optional, max 5. Each item is `{ filename, url, contentType }` with an **https** URL. The worker stores them on the job and fetches the files at send time (needed for scheduled mail). Max 8MB per file.
 
 One worker `ZEPTOMAIL_API_KEY` sends for all tenants; each email can use a different verified `from` domain.
 
@@ -184,7 +184,7 @@ curl -X POST https://YOUR_WORKER/api/internal/process/email/JOB_ID \
 Per scheduled job, the worker calls Trigger.dev with `delay: sendAt`.
 At that time Trigger hits `POST /api/internal/process/email/{id}` (or `/sms/{id}`).
 
-**Vercel env:** add `TRIGGER_SECRET_KEY` (so `/schedule` can enqueue runs).
+**Vercel env:** `TRIGGER_SECRET_KEY` is required for delayed `/schedule`, `/sms/schedule`, and `/jobs/batch`. Without it the worker returns **503** instead of pretending the job is queued.
 
 **Trigger.dev project env:**
 

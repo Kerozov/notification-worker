@@ -8,7 +8,10 @@ import {
 import { sendEmailBatch } from "@/lib/email/send";
 import { recordDeliveryResults, recordInvalidRecipients } from "@/lib/deliveries/store";
 import { resolveDisplayStatus } from "@/lib/deliveries/stats";
-import { normalizeRecipients } from "@/lib/validation/email-job";
+import {
+  normalizeRecipients,
+  type EmailAttachment,
+} from "@/lib/validation/email-job";
 import { cacheTenant, getCachedTenantById } from "@/lib/tenants/cache";
 
 export type ProcessJobResult = {
@@ -28,6 +31,7 @@ export type CreateJobInput = {
   replyTo?: string | null;
   sendAt: Date;
   idempotencyKey?: string | null;
+  attachments?: EmailAttachment[];
 };
 
 export async function findExistingJobByIdempotencyKey(
@@ -115,6 +119,7 @@ export async function createEmailJob(
         recipients: invalid,
         from_email: input.from ?? null,
         reply_to: input.replyTo ?? null,
+        attachments: input.attachments ?? [],
         sent_count: 0,
         failed_count: invalid.length,
         error,
@@ -150,6 +155,7 @@ export async function createEmailJob(
       recipients: valid,
       from_email: input.from ?? null,
       reply_to: input.replyTo ?? null,
+      attachments: input.attachments ?? [],
     })
     .select("*")
     .single();
@@ -174,6 +180,7 @@ export async function createEmailJob(
             recipients: valid,
             from_email: input.from ?? null,
             reply_to: input.replyTo ?? null,
+            attachments: input.attachments ?? [],
             send_at: input.sendAt.toISOString(),
             updated_at: new Date().toISOString(),
           })
@@ -306,6 +313,7 @@ export async function processClaimedJob(
       recipients: job.recipients,
       replyTo,
       clientReference: job.id,
+      attachments: job.attachments,
     });
 
     await recordDeliveryResults(job.id, job.tenant_id, result.deliveries);

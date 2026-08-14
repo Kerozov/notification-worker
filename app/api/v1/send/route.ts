@@ -67,6 +67,7 @@ export async function POST(request: NextRequest) {
       replyTo: parsed.data.replyTo,
       sendAt: new Date(),
       idempotencyKey: parsed.data.idempotencyKey,
+      attachments: parsed.data.attachments,
     });
 
     if (job.status !== "pending") {

@@ -13,7 +13,11 @@ import {
   resolveSmsSender,
   toSmsJobResponse,
 } from "@/lib/jobs/process-sms";
-import { dispatchScheduledSmsJob } from "@/lib/trigger/schedule";
+import {
+  assertCanDispatchAt,
+  DelayedDispatchError,
+  dispatchScheduledSmsJob,
+} from "@/lib/trigger/schedule";
 import { scheduleSmsBodySchema } from "@/lib/validation/sms-job";
 
 export async function POST(request: NextRequest) {
@@ -46,6 +50,22 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  const sendAt = new Date(parsed.data.sendAt);
+
+  if (Number.isNaN(sendAt.getTime())) {
+    return Response.json({ error: "Invalid sendAt" }, { status: 400 });
+  }
+
+  try {
+    assertCanDispatchAt(sendAt);
+  } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Delayed scheduling is not configured";
+    return Response.json({ error: message }, { status: 503 });
+  }
+
   try {
     if (!resolveNotifierApiKey(tenant)) {
       return Response.json(
@@ -58,7 +78,6 @@ export async function POST(request: NextRequest) {
     }
 
     const sender = resolveSmsSender(parsed.data.sender, tenant);
-    const sendAt = new Date(parsed.data.sendAt);
 
     const { job, invalid } = await createSmsJob({
       tenantId: tenant.id,
@@ -71,21 +90,36 @@ export async function POST(request: NextRequest) {
       idempotencyKey: parsed.data.idempotencyKey,
     });
 
-    let dispatch: "immediate" | "trigger" | "queued" = "queued";
+    let dispatch: "immediate" | "trigger" | undefined;
 
     if (job.status === "pending") {
       try {
         const result = await dispatchScheduledSmsJob(job.id, sendAt);
         dispatch = result.mode;
-      } catch {
-        dispatch = "queued";
+      } catch (error) {
+        const message =
+          error instanceof DelayedDispatchError
+            ? error.message
+            : error instanceof Error
+              ? error.message
+              : "Failed to dispatch scheduled SMS";
+
+        return Response.json(
+          {
+            error: message,
+            jobId: job.id,
+            status: job.status,
+            sendAt: job.send_at,
+          },
+          { status: 503 },
+        );
       }
     }
 
     return Response.json({
       ...toSmsJobResponse(job, invalid),
       sendAt: job.send_at,
-      dispatch: dispatch,
+      dispatch,
     });
   } catch (error) {
     const message =

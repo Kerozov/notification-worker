@@ -8,7 +8,11 @@ import {
   rateLimitResponse,
 } from "@/lib/rate-limit/tenant";
 import { createEmailJob, resolveJobFrom } from "@/lib/jobs/process";
-import { dispatchScheduledEmailJob } from "@/lib/trigger/schedule";
+import {
+  assertCanDispatchAt,
+  DelayedDispatchError,
+  dispatchScheduledEmailJob,
+} from "@/lib/trigger/schedule";
 import { scheduleJobBodySchema } from "@/lib/validation/email-job";
 
 export async function POST(request: NextRequest) {
@@ -48,6 +52,16 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    assertCanDispatchAt(sendAt);
+  } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Delayed scheduling is not configured";
+    return Response.json({ error: message }, { status: 503 });
+  }
+
+  try {
     const from = resolveJobFrom(parsed.data.from, tenant);
 
     if (!from) {
@@ -69,16 +83,32 @@ export async function POST(request: NextRequest) {
       replyTo: parsed.data.replyTo,
       sendAt,
       idempotencyKey: parsed.data.idempotencyKey,
+      attachments: parsed.data.attachments,
     });
 
-    let dispatch: "immediate" | "trigger" | "queued" = "queued";
+    let dispatch: "immediate" | "trigger" | undefined;
 
     if (job.status === "pending") {
       try {
         const result = await dispatchScheduledEmailJob(job.id, sendAt);
         dispatch = result.mode;
-      } catch {
-        dispatch = "queued";
+      } catch (error) {
+        const message =
+          error instanceof DelayedDispatchError
+            ? error.message
+            : error instanceof Error
+              ? error.message
+              : "Failed to dispatch scheduled job";
+
+        return Response.json(
+          {
+            error: message,
+            jobId: job.id,
+            status: job.status,
+            sendAt: job.send_at,
+          },
+          { status: 503 },
+        );
       }
     }
 
@@ -86,7 +116,7 @@ export async function POST(request: NextRequest) {
       jobId: job.id,
       status: job.status,
       sendAt: job.send_at,
-      dispatch: dispatch,
+      dispatch,
       invalid: invalid.length,
       ...(invalid.length > 0 ? { invalidEmails: invalid } : {}),
       ...(job.error ? { errors: [job.error] } : {}),

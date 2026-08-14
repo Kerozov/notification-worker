@@ -14,6 +14,29 @@ export const fromAddressSchema = z
     message: "Invalid from address. Use email or Name <email@domain.com>",
   });
 
+export const emailAttachmentSchema = z.object({
+  filename: z.string().trim().min(1).max(200),
+  url: z
+    .string()
+    .url()
+    .refine((value) => value.startsWith("https://"), {
+      message: "Attachment URL must be https",
+    }),
+  contentType: z.string().trim().min(1).max(100),
+});
+
+export const emailAttachmentsSchema = z
+  .array(emailAttachmentSchema)
+  .max(5)
+  .optional();
+
+export type EmailAttachment = z.infer<typeof emailAttachmentSchema>;
+
+export function parseStoredAttachments(raw: unknown): EmailAttachment[] {
+  const parsed = z.array(emailAttachmentSchema).safeParse(raw);
+  return parsed.success ? parsed.data : [];
+}
+
 export const sendJobBodySchema = z.object({
   subject: z.string().min(1).max(998),
   html: z.string().min(1),
@@ -21,6 +44,7 @@ export const sendJobBodySchema = z.object({
   from: fromAddressSchema.optional(),
   replyTo: z.string().email().optional(),
   idempotencyKey: z.string().min(1).max(255).optional(),
+  attachments: emailAttachmentsSchema,
 });
 
 export const scheduleJobBodySchema = sendJobBodySchema.extend({

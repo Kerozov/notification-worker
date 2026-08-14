@@ -12,10 +12,14 @@ import {
   processJobById,
   resolveJobFrom,
 } from "@/lib/jobs/process";
-import { dispatchScheduledEmailJob } from "@/lib/trigger/schedule";
+import {
+  assertCanDispatchAt,
+  DelayedDispatchError,
+  dispatchScheduledEmailJob,
+  IMMEDIATE_WINDOW_MS,
+  isImmediateSend,
+} from "@/lib/trigger/schedule";
 import { batchJobsBodySchema } from "@/lib/validation/email-job";
-
-const IMMEDIATE_WINDOW_MS = 60_000;
 
 /**
  * Submit multiple email jobs in one request (e.g. all automations for one subscriber).
@@ -64,6 +68,22 @@ export async function POST(request: NextRequest) {
   }
 
   const now = Date.now();
+  const hasDelayed = parsed.data.jobs.some(
+    (item) => !isImmediateSend(new Date(item.sendAt), now),
+  );
+
+  if (hasDelayed) {
+    try {
+      assertCanDispatchAt(new Date(now + IMMEDIATE_WINDOW_MS + 1));
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Delayed scheduling is not configured";
+      return Response.json({ error: message }, { status: 503 });
+    }
+  }
+
   const results: {
     idempotencyKey?: string;
     jobId: string;
@@ -74,6 +94,8 @@ export async function POST(request: NextRequest) {
     failed?: number;
     error?: string;
   }[] = [];
+
+  let dispatchFailed = false;
 
   for (const item of parsed.data.jobs) {
     const sendAt = new Date(item.sendAt);
@@ -88,6 +110,7 @@ export async function POST(request: NextRequest) {
         replyTo: item.replyTo ?? parsed.data.replyTo,
         sendAt,
         idempotencyKey: item.idempotencyKey,
+        attachments: item.attachments,
       });
 
       if (invalid.length > 0 && job.status === "failed") {
@@ -101,7 +124,7 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
-      const isImmediate = sendAt.getTime() <= now + IMMEDIATE_WINDOW_MS;
+      const isImmediate = isImmediateSend(sendAt, now);
 
       if (job.status === "pending" && isImmediate) {
         const processed = await processJobById(job.id);
@@ -118,20 +141,31 @@ export async function POST(request: NextRequest) {
       }
 
       if (job.status === "pending" && !isImmediate) {
-        let dispatch: string = "queued";
         try {
           const dispatched = await dispatchScheduledEmailJob(job.id, sendAt);
-          dispatch = dispatched.mode;
-        } catch {
-          dispatch = "queued";
+          results.push({
+            idempotencyKey: item.idempotencyKey,
+            jobId: job.id,
+            status: job.status,
+            sendAt: job.send_at,
+            dispatch: dispatched.mode,
+          });
+        } catch (error) {
+          dispatchFailed = true;
+          const message =
+            error instanceof DelayedDispatchError
+              ? error.message
+              : error instanceof Error
+                ? error.message
+                : "Failed to dispatch scheduled job";
+          results.push({
+            idempotencyKey: item.idempotencyKey,
+            jobId: job.id,
+            status: job.status,
+            sendAt: job.send_at,
+            error: message,
+          });
         }
-        results.push({
-          idempotencyKey: item.idempotencyKey,
-          jobId: job.id,
-          status: job.status,
-          sendAt: job.send_at,
-          dispatch,
-        });
         continue;
       }
 
@@ -150,6 +184,13 @@ export async function POST(request: NextRequest) {
         error: error instanceof Error ? error.message : "Job failed",
       });
     }
+  }
+
+  if (dispatchFailed) {
+    return Response.json(
+      { ok: false, error: "One or more jobs could not be scheduled", results },
+      { status: 503 },
+    );
   }
 
   return Response.json({ ok: true, results });
