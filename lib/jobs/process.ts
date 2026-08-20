@@ -478,6 +478,66 @@ export async function cancelPendingJobById(
   return data ? asEmailJob(data) : null;
 }
 
+const CANCEL_CHUNK = 80;
+
+async function cancelPendingJobsByColumn(
+  tenantId: string,
+  column: "id" | "idempotency_key",
+  values: string[],
+): Promise<EmailJob[]> {
+  const unique = [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+  if (unique.length === 0) return [];
+
+  const supabase = getSupabaseAdmin();
+  const canceled: EmailJob[] = [];
+
+  for (let i = 0; i < unique.length; i += CANCEL_CHUNK) {
+    const chunk = unique.slice(i, i + CANCEL_CHUNK);
+    const { data, error } = await supabase
+      .from("email_jobs")
+      .update({
+        status: "canceled",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("tenant_id", tenantId)
+      .eq("status", "pending")
+      .in(column, chunk)
+      .select("*");
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    for (const row of data ?? []) {
+      canceled.push(asEmailJob(row));
+    }
+  }
+
+  return canceled;
+}
+
+/** Cancel many pending jobs in one request (signup / unsubscribe). */
+export async function cancelPendingJobs(
+  tenantId: string,
+  input: { jobIds?: string[]; idempotencyKeys?: string[] },
+): Promise<EmailJob[]> {
+  const byId = await cancelPendingJobsByColumn(tenantId, "id", input.jobIds ?? []);
+  const byKey = await cancelPendingJobsByColumn(
+    tenantId,
+    "idempotency_key",
+    input.idempotencyKeys ?? [],
+  );
+
+  const seen = new Set(byId.map((job) => job.id));
+  const merged = [...byId];
+  for (const job of byKey) {
+    if (seen.has(job.id)) continue;
+    seen.add(job.id);
+    merged.push(job);
+  }
+  return merged;
+}
+
 export async function recordCronRun(): Promise<void> {
   const supabase = getSupabaseAdmin();
 

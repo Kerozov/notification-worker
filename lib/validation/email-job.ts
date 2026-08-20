@@ -57,9 +57,21 @@ export const batchJobsBodySchema = z.object({
   jobs: z.array(scheduleJobBodySchema).min(1).max(30),
 });
 
+export const cancelJobsBodySchema = z
+  .object({
+    jobIds: z.array(z.string().min(1).max(80)).max(200).optional(),
+    idempotencyKeys: z.array(z.string().min(1).max(255)).max(200).optional(),
+  })
+  .refine(
+    (value) =>
+      (value.jobIds?.length ?? 0) > 0 || (value.idempotencyKeys?.length ?? 0) > 0,
+    { message: "jobIds or idempotencyKeys is required" },
+  );
+
 export type SendJobBody = z.infer<typeof sendJobBodySchema>;
 export type ScheduleJobBody = z.infer<typeof scheduleJobBodySchema>;
 export type BatchJobsBody = z.infer<typeof batchJobsBodySchema>;
+export type CancelJobsBody = z.infer<typeof cancelJobsBodySchema>;
 
 const EMAIL_REGEX =
   /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;

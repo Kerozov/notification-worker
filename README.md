@@ -170,6 +170,17 @@ curl -X DELETE https://YOUR_WORKER/api/v1/jobs/JOB_ID \
   -H "Authorization: Bearer fb_xxx"
 ```
 
+### Cancel many pending jobs (signup / unsubscribe)
+
+Cancel by job id and/or the idempotency key used when the job was scheduled (`platform-auto-{automationId}-{email}`). Pending rows become `canceled`; already-sending jobs are left alone.
+
+```bash
+curl -X POST https://YOUR_WORKER/api/v1/jobs/cancel \
+  -H "Authorization: Bearer fb_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{"jobIds":["JOB_ID"],"idempotencyKeys":["platform-auto-AUTO_ID-user@example.com"]}'
+```
+
 ### Internal process (Trigger.dev only)
 
 When a scheduled job fires, Trigger.dev calls:
