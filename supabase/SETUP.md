@@ -33,7 +33,7 @@ SUPABASE_DB_PASSWORD=your-database-password
 
 Password: Supabase → **Project Settings** → **Database** → **Database password**
 
-2. Пусни миграциите по ред (001 → 008):
+2. Пусни миграциите по ред (001 → 010):
 
 ```bash
 bun run db:setup
@@ -74,14 +74,14 @@ bun run db:verify
 
 ## Вече имаш база (partial migrations)
 
-Не пускай отделните 001–008 ако вече си минал през `setup-all.sql`.
+Не пускай отделните 001–010 ако вече си минал през `setup-all.sql`.
 
 Ако липсват само нови колони, пак пусни `setup-all.sql` — `ADD COLUMN IF NOT EXISTS` е безопасен.
 
 Или само липсващия файл от `supabase/migrations/`:
 
 ```
-008_email_job_attachments.sql
+010_campaign_parent.sql
 ```
 
 После: `bun run db:verify`
@@ -93,7 +93,8 @@ bun run db:verify
 | Грешка | Решение |
 |--------|---------|
 | `column notifier_api_key does not exist` | Пусни setup-all.sql |
-| `column attachments does not exist` | Пусни setup-all.sql или 008 |
+| `column attachments does not exist` | Пусни setup-all.sql |
+| `column kind / parent_id does not exist` | Пусни setup-all.sql |
 | `relation sms_jobs does not exist` | Пусни setup-all.sql |
 | `clicked_at does not exist` | Пусни setup-all.sql |
 | Zara таблици в worker проекта | Пусни CLEANUP_ZARA_SETUP.sql |
