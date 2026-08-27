@@ -1,11 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminCookieName } from "@/lib/auth/admin";
 
-export async function GET(request: NextRequest) {
-  const adminSecret = process.env.ADMIN_SECRET;
-  const secret = request.nextUrl.searchParams.get("secret");
-
+function loginRedirect(request: NextRequest, secret: string | null) {
   const response = NextResponse.redirect(new URL("/admin", request.url));
+  const adminSecret = process.env.ADMIN_SECRET;
 
   if (adminSecret && secret === adminSecret) {
     response.cookies.set(getAdminCookieName(), adminSecret, {
@@ -17,4 +15,13 @@ export async function GET(request: NextRequest) {
   }
 
   return response;
+}
+
+export async function GET(request: NextRequest) {
+  return loginRedirect(request, request.nextUrl.searchParams.get("secret"));
+}
+
+export async function POST(request: NextRequest) {
+  const form = await request.formData();
+  return loginRedirect(request, String(form.get("secret") ?? ""));
 }

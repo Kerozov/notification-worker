@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getSupabaseAdmin } from "@/lib/db/supabase";
 import { hasAdminSession } from "@/lib/auth/admin";
@@ -11,6 +10,7 @@ import {
   resolveDisplayStatus,
 } from "@/lib/deliveries/stats";
 import { getJobById } from "@/lib/jobs/query";
+import { getAdminChrome } from "@/lib/admin/chrome";
 import {
   resendFromPaste,
   resendFromUpload,
@@ -18,6 +18,7 @@ import {
 } from "../../actions";
 import styles from "../../admin.module.css";
 import { formatDateTime, shortId, StatusBadge } from "../../components";
+import { AdminShell } from "../../shell";
 
 type SearchParams = Promise<{
   error?: string;
@@ -45,13 +46,16 @@ export default async function ResendPage({
   const job = await getJobById(id);
 
   if (!job) {
+    const chrome = await getAdminChrome();
     return (
-      <main className={styles.adminPage}>
-        <div className={styles.shell}>
-          <p>Job not found.</p>
-          <Link href="/admin">← Back to admin</Link>
-        </div>
-      </main>
+      <AdminShell
+        active="email"
+        channel="email"
+        emailPending={chrome.emailPending}
+        smsPending={chrome.smsPending}
+      >
+        <p className={styles.empty}>Job not found.</p>
+      </AdminShell>
     );
   }
 
@@ -83,21 +87,23 @@ export default async function ResendPage({
 
   const flashError = query.error ? decodeURIComponent(query.error) : null;
   const success = query.ok === "1";
+  const chrome = await getAdminChrome();
 
   return (
-    <main className={styles.adminPage}>
-      <div className={styles.shell}>
-        <header className={styles.header}>
-          <div>
-            <Link href="/admin" className={styles.backLink}>
-              ← Back to admin
-            </Link>
-            <h1 className={styles.title}>Resend campaign</h1>
-            <p className={styles.subtitle}>
-              Clone subject and HTML into a new send job
-            </p>
-          </div>
-        </header>
+    <AdminShell
+      active="email"
+      channel="email"
+      emailPending={chrome.emailPending}
+      smsPending={chrome.smsPending}
+    >
+      <header className={styles.pageHeader}>
+        <div>
+          <h1 className={styles.pageTitle}>Resend campaign</h1>
+          <p className={styles.pageSubtitle}>
+            Clone subject and HTML into a new send job
+          </p>
+        </div>
+      </header>
 
         {flashError ? (
           <section className={styles.errorBanner}>{flashError}</section>
@@ -232,7 +238,6 @@ export default async function ResendPage({
             </button>
           </form>
         </section>
-      </div>
-    </main>
+    </AdminShell>
   );
 }

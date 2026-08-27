@@ -1,8 +1,8 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { hasAdminSession } from "@/lib/auth/admin";
+import { getAdminChrome } from "@/lib/admin/chrome";
 import styles from "../../admin.module.css";
-import { AdminNav } from "../../nav";
+import { AdminShell } from "../../shell";
 import { ClientForm } from "../client-forms";
 
 export default async function NewClientPage({
@@ -16,34 +16,30 @@ export default async function NewClientPage({
 
   const params = await searchParams;
   const flashError = params.error ? decodeURIComponent(params.error) : null;
+  const chrome = await getAdminChrome();
 
   return (
-    <main className={styles.adminPage}>
-      <div className={styles.shell}>
-        <Link className={styles.backLink} href="/admin/clients">
-          ← Back to clients
-        </Link>
+    <AdminShell
+      active="clients"
+      emailPending={chrome.emailPending}
+      smsPending={chrome.smsPending}
+    >
+      <header className={styles.pageHeader}>
+        <div>
+          <h1 className={styles.pageTitle}>Add client</h1>
+          <p className={styles.pageSubtitle}>
+            Creates a tenant and a worker API key. No seed script required.
+          </p>
+        </div>
+      </header>
 
-        <header className={styles.header}>
-          <div>
-            <p className={styles.kicker}>Notification Worker</p>
-            <h1 className={styles.title}>Add client</h1>
-            <p className={styles.subtitle}>
-              Creates tenant in database and generates a worker API key
-            </p>
-          </div>
-        </header>
+      {flashError ? (
+        <section className={styles.errorBanner}>{flashError}</section>
+      ) : null}
 
-        <AdminNav active="clients" />
-
-        {flashError ? (
-          <section className={styles.errorBanner}>{flashError}</section>
-        ) : null}
-
-        <section className={styles.section}>
-          <ClientForm mode="create" />
-        </section>
-      </div>
-    </main>
+      <section className={styles.section}>
+        <ClientForm mode="create" />
+      </section>
+    </AdminShell>
   );
 }

@@ -1,15 +1,23 @@
+import Link from "next/link";
+import styles from "./page.module.css";
+
 export default function Home() {
   return (
-    <main style={{ fontFamily: "system-ui, sans-serif", padding: "2rem" }}>
-      <h1>Notification Worker</h1>
-      <p>Multi-tenant email and SMS dispatch service.</p>
-      <p>
-        API: <code>/api/v1/send</code>, <code>/api/v1/schedule</code>,{" "}
-        <code>/api/v1/sms/send</code>, <code>/api/v1/sms/schedule</code>
-      </p>
-      <p>
-        Admin: <code>/admin</code>
-      </p>
+    <main className={styles.page}>
+      <div className={styles.main}>
+        <div className={styles.intro}>
+          <h1>Notification Worker</h1>
+          <p>
+            Multi-tenant email and SMS dispatch. Open the dashboard to search
+            jobs, watch queues, and manage clients.
+          </p>
+        </div>
+        <div className={styles.ctas}>
+          <Link className={styles.primary} href="/admin">
+            Open dashboard
+          </Link>
+        </div>
+      </div>
     </main>
   );
 }

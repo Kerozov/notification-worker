@@ -15,6 +15,7 @@ import {
   mergeJobDeliveryStats,
   resolveDisplayStatus,
 } from "@/lib/deliveries/stats";
+import { getAdminChrome } from "@/lib/admin/chrome";
 import {
   cancelScheduledEmailJob,
   removeJobRecipient,
@@ -24,6 +25,7 @@ import {
 import styles from "../../admin.module.css";
 import { formatDateTime, shortId, StatusBadge } from "../../components";
 import { EmailJobActions } from "../../job-actions";
+import { AdminShell } from "../../shell";
 
 type SearchParams = Promise<{
   error?: string;
@@ -48,13 +50,16 @@ export default async function AdminJobPage({
   const job = await getJobById(id);
 
   if (!job) {
+    const chrome = await getAdminChrome();
     return (
-      <main className={styles.adminPage}>
-        <div className={styles.shell}>
-          <p>Job not found.</p>
-          <Link href="/admin">← Back to admin</Link>
-        </div>
-      </main>
+      <AdminShell
+        active="email"
+        channel="email"
+        emailPending={chrome.emailPending}
+        smsPending={chrome.smsPending}
+      >
+        <p className={styles.empty}>Job not found.</p>
+      </AdminShell>
     );
   }
 
@@ -93,25 +98,31 @@ export default async function AdminJobPage({
     job.status === "pending" ||
     job.status === "processing" ||
     children.some((child) => child.status === "pending");
+  const chrome = await getAdminChrome();
 
   return (
-    <main className={styles.adminPage}>
-      <div className={styles.shell}>
-        <header className={styles.header}>
-          <div>
-            <Link href="/admin?channel=email" className={styles.backLink}>
-              ← Back to email jobs
-            </Link>
-            <p className={styles.kicker}>
-              {isCampaignJob(job) ? "Campaign" : "Send job"}
-              {parent ? ` · chunk of ${shortId(parent.id)}` : ""}
-            </p>
-            <h1 className={styles.title}>{job.subject}</h1>
-            <p className={styles.subtitle}>
-              {tenant?.slug ?? shortId(job.tenant_id)} · {shortId(job.id)}
-            </p>
-          </div>
-        </header>
+    <AdminShell
+      active="email"
+      channel="email"
+      q=""
+      emailPending={chrome.emailPending}
+      smsPending={chrome.smsPending}
+    >
+      <header className={styles.pageHeader}>
+        <div>
+          <p className={styles.kicker}>
+            {isCampaignJob(job)
+              ? "Campaign · whole send"
+              : parent
+                ? "Send job · one pocket"
+                : "Send job"}
+          </p>
+          <h1 className={styles.pageTitle}>{job.subject}</h1>
+          <p className={styles.pageSubtitle}>
+            {tenant?.slug ?? shortId(job.tenant_id)}
+          </p>
+        </div>
+      </header>
 
         {flashError ? (
           <section className={styles.errorBanner}>{flashError}</section>
@@ -128,11 +139,44 @@ export default async function AdminJobPage({
           </section>
         ) : null}
 
+        {parent ? (
+          <section className={styles.infoBanner}>
+            This is one send pocket of 250.{" "}
+            <Link href={`/admin/jobs/${parent.id}`}>Open the campaign</Link> to
+            see everyone and every pocket.
+          </section>
+        ) : null}
+
         <section className={styles.resendCard}>
+          {isCampaignJob(job) ? (
+            <p className={styles.sectionHint}>
+              Parent campaign. Apps store this id as <code>worker_job_id</code>.
+              Paste the campaign id from Funnel / Zara / HC, this job id, or the
+              key below into Search to land here.
+            </p>
+          ) : null}
           <div className={styles.resendMeta}>
             <div>
               <strong>Status</strong>
               <StatusBadge status={displayStatus} />
+            </div>
+            <div>
+              <strong>Worker job id</strong>
+              <code className={styles.copyValue}>{job.id}</code>
+            </div>
+            {parent ? (
+              <div>
+                <strong>Parent campaign</strong>
+                <Link href={`/admin/jobs/${parent.id}`} className={styles.copyValue}>
+                  {parent.id}
+                </Link>
+              </div>
+            ) : null}
+            <div>
+              <strong>Key</strong>
+              <code className={styles.copyValue}>
+                {job.idempotency_key ?? "—"}
+              </code>
             </div>
             <div>
               <strong>From</strong>
@@ -152,10 +196,6 @@ export default async function AdminJobPage({
             <div>
               <strong>Send at</strong>
               <span>{formatDateTime(job.send_at)}</span>
-            </div>
-            <div>
-              <strong>Idempotency</strong>
-              <span>{job.idempotency_key ?? "—"}</span>
             </div>
           </div>
 
@@ -258,8 +298,14 @@ export default async function AdminJobPage({
                           status={resolveDisplayStatus(child, statsMap.get(child.id))}
                         />
                       </td>
-                      <td className={styles.mono} title={child.id}>
-                        #{index + 1} · {shortId(child.id)}
+                      <td className={styles.mono}>
+                        <Link
+                          href={`/admin/jobs/${child.id}`}
+                          className={styles.copyValue}
+                          title={child.id}
+                        >
+                          #{index + 1} · {shortId(child.id)}
+                        </Link>
                       </td>
                       <td>{child.recipients.length.toLocaleString("bg-BG")}</td>
                       <td className={styles.metricCell}>
@@ -301,7 +347,6 @@ export default async function AdminJobPage({
             />
           </div>
         </section>
-      </div>
-    </main>
+    </AdminShell>
   );
 }

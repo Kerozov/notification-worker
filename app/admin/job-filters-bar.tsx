@@ -80,19 +80,16 @@ export function JobFiltersBar({
       {filters.status !== "all" ? (
         <input type="hidden" name="status" value={filters.status} />
       ) : null}
+      {filters.q ? <input type="hidden" name="q" value={filters.q} /> : null}
+
+      {filters.q ? (
+        <p className={styles.searchActive}>
+          Results for <strong>{filters.q}</strong>
+          {filters.period === "all" ? " · all time" : ""}
+        </p>
+      ) : null}
 
       <div className={styles.filtersRow}>
-        <label className={styles.filterField}>
-          <span className={styles.filterLabel}>Search</span>
-          <input
-            className={styles.filterInput}
-            type="search"
-            name="q"
-            defaultValue={filters.q}
-            placeholder="Email, subject, from, job ID…"
-          />
-        </label>
-
         <label className={styles.filterField}>
           <span className={styles.filterLabel}>Client</span>
           <select

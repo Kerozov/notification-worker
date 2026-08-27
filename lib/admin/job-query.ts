@@ -1,4 +1,5 @@
 import { getSupabaseAdmin } from "@/lib/db/supabase";
+import { isAdminJobLookupTerm } from "@/lib/admin/lookup";
 
 export const EMAIL_JOB_SELECT =
   "id, tenant_id, status, subject, html, from_email, recipients, sent_count, failed_count, error, send_at, created_at, sent_at, updated_at, idempotency_key, kind, parent_id";
@@ -43,7 +44,7 @@ export function parseJobListFilters(
     period:
       period === "24h" || period === "7d" || period === "30d" || period === "all"
         ? period
-        : "7d",
+        : (params.q?.trim() ? "all" : "7d"),
     q: params.q?.trim() ?? "",
     page: Math.max(1, Number.parseInt(params.page ?? "1", 10) || 1),
     sort:
@@ -67,6 +68,74 @@ export function periodToSince(period: JobPeriod): string | null {
 
 function escapeIlike(value: string): string {
   return value.replace(/[%_\\]/g, "\\$&");
+}
+
+function quoteOrValue(value: string): string {
+  return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+}
+
+function ilikeClause(column: string, term: string): string {
+  return `${column}.ilike.${quoteOrValue(`%${escapeIlike(term)}%`)}`;
+}
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const SHORT_ID_RE = /^[0-9a-f]{8}$/i;
+
+export function isJobIdSearch(term: string): boolean {
+  return UUID_RE.test(term) || SHORT_ID_RE.test(term);
+}
+
+export function buildEmailSearchOr(term: string): string {
+  const trimmed = term.trim();
+  const clauses = [
+    ilikeClause("subject", trimmed),
+    ilikeClause("error", trimmed),
+    ilikeClause("from_email", trimmed),
+    ilikeClause("idempotency_key", trimmed),
+  ];
+
+  if (UUID_RE.test(trimmed)) {
+    clauses.push(`id.eq.${trimmed}`, `parent_id.eq.${trimmed}`);
+  } else if (SHORT_ID_RE.test(trimmed)) {
+    clauses.push(`id.ilike.${quoteOrValue(`${trimmed.toLowerCase()}%`)}`);
+  }
+
+  if (trimmed.includes("@")) {
+    const email = trimmed.toLowerCase();
+    clauses.push(`recipients.cs.${JSON.stringify([email])}`);
+  }
+
+  return clauses.join(",");
+}
+
+export function buildSmsSearchOr(term: string): string {
+  const trimmed = term.trim();
+  const clauses = [
+    ilikeClause("body", trimmed),
+    ilikeClause("error", trimmed),
+    ilikeClause("sender", trimmed),
+  ];
+
+  if (UUID_RE.test(trimmed)) {
+    clauses.push(`id.eq.${trimmed}`);
+  } else if (SHORT_ID_RE.test(trimmed)) {
+    clauses.push(`id.ilike.${quoteOrValue(`${trimmed.toLowerCase()}%`)}`);
+  }
+
+  if (trimmed.includes("@")) {
+    clauses.push(`recipients.cs.${JSON.stringify([trimmed.toLowerCase()])}`);
+  }
+
+  const digits = trimmed.replace(/\D/g, "");
+  if (digits.length >= 6) {
+    clauses.push(`recipients.cs.${JSON.stringify([trimmed])}`);
+    if (digits !== trimmed) {
+      clauses.push(`recipients.cs.${JSON.stringify([digits])}`);
+    }
+  }
+
+  return clauses.join(",");
 }
 
 type FilterableQuery<T> = {
@@ -99,49 +168,6 @@ function applyBaseFilters<T>(
   return q;
 }
 
-function buildEmailSearchOr(term: string): string {
-  const escaped = escapeIlike(term);
-  const clauses = [
-    `subject.ilike.%${escaped}%`,
-    `error.ilike.%${escaped}%`,
-    `from_email.ilike.%${escaped}%`,
-    `idempotency_key.ilike.%${escaped}%`,
-    `recipients::text.ilike.%${escaped}%`,
-  ];
-
-  if (/^[0-9a-f-]{36}$/i.test(term)) {
-    clauses.push(`id.eq.${term}`);
-  }
-
-  if (term.includes("@")) {
-    const emailLiteral = term.replace(/"/g, '\\"');
-    clauses.push(`recipients.cs.["${emailLiteral}"]`);
-  }
-
-  return clauses.join(",");
-}
-
-function buildSmsSearchOr(term: string): string {
-  const escaped = escapeIlike(term);
-  const clauses = [
-    `body.ilike.%${escaped}%`,
-    `error.ilike.%${escaped}%`,
-    `sender.ilike.%${escaped}%`,
-    `recipients::text.ilike.%${escaped}%`,
-  ];
-
-  if (/^[0-9a-f-]{36}$/i.test(term)) {
-    clauses.push(`id.eq.${term}`);
-  }
-
-  if (term.includes("@")) {
-    const emailLiteral = term.replace(/"/g, '\\"');
-    clauses.push(`recipients.cs.["${emailLiteral}"]`);
-  }
-
-  return clauses.join(",");
-}
-
 function applyEmailSearch<T>(query: FilterableQuery<T>, q: string): T {
   const term = q.trim();
   if (!term) {
@@ -165,7 +191,7 @@ function applyTopLevelEmailFilter<T>(
   filters: JobListFilters,
 ): FilterableQuery<T> {
   const term = filters.q.trim();
-  if (/^[0-9a-f-]{36}$/i.test(term)) {
+  if (isJobIdSearch(term) || isAdminJobLookupTerm(term)) {
     return query;
   }
   return query.is("parent_id", null) as FilterableQuery<T>;
