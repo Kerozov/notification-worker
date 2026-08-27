@@ -9,11 +9,14 @@ import {
 } from "@/lib/rate-limit/tenant";
 import {
   createEmailJob,
-  processJobById,
   resolveJobFrom,
   toJobResponse,
 } from "@/lib/jobs/process";
-import { sendJobBodySchema } from "@/lib/validation/email-job";
+import { parseJobMerge, sendJobBodySchema } from "@/lib/validation/email-job";
+import { dispatchCreatedEmailJobs } from "@/lib/trigger/schedule";
+import { emailJobNeedsDispatch } from "@/lib/jobs/campaign";
+
+export const maxDuration = 300;
 
 export async function POST(request: NextRequest) {
   const tenant = await resolveTenantFromRequest(request);
@@ -58,7 +61,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { job, invalid } = await createEmailJob({
+    const { job, invalid, children } = await createEmailJob({
       tenantId: tenant.id,
       subject: parsed.data.subject,
       html: parsed.data.html,
@@ -68,28 +71,40 @@ export async function POST(request: NextRequest) {
       sendAt: new Date(),
       idempotencyKey: parsed.data.idempotencyKey,
       attachments: parsed.data.attachments,
+      merge: parseJobMerge(parsed.data.merge),
     });
 
-    if (job.status !== "pending") {
-      return Response.json(toJobResponse(job, invalid));
+    if (!emailJobNeedsDispatch(job.status)) {
+      return Response.json(toJobResponse(job, invalid, children));
     }
 
-    const result = await processJobById(job.id);
+    const dispatched = await dispatchCreatedEmailJobs(job, children);
 
-    if (!result) {
+    if (
+      children.length > 0 ||
+      dispatched.mode === "trigger" ||
+      !dispatched.result
+    ) {
       return Response.json({
-        ...toJobResponse(job, invalid),
+        ...toJobResponse(job, invalid, children),
+        status: dispatched.result?.status ?? "pending",
+        sent: children.length > 0 ? 0 : (dispatched.result?.sent ?? 0),
+        failed: children.length > 0 ? 0 : (dispatched.result?.failed ?? 0),
+        dispatch: dispatched.mode,
       });
     }
 
     return Response.json({
-      jobId: result.jobId,
-      status: result.status,
-      sent: result.sent,
-      failed: result.failed,
+      jobId: dispatched.result.jobId,
+      status: dispatched.result.status,
+      sent: dispatched.result.sent,
+      failed: dispatched.result.failed,
       invalid: invalid.length,
+      recipientCount: job.recipients.length,
+      recipients: job.recipients,
+      kind: job.kind,
       ...(invalid.length > 0 ? { invalidEmails: invalid } : {}),
-      ...(result.errors ? { errors: result.errors } : {}),
+      ...(dispatched.result.errors ? { errors: dispatched.result.errors } : {}),
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to send";

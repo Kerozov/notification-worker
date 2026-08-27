@@ -16,7 +16,8 @@ export type DeliveryStatus =
   | "opened"
   | "clicked"
   | "bounced"
-  | "complained";
+  | "complained"
+  | "canceled";
 
 export type EmailDelivery = {
   id: string;
@@ -51,8 +52,16 @@ function normalizeEmail(value: string): string {
   return value.trim().toLowerCase();
 }
 
+const DELIVERY_PAGE = 1000;
+const INSERT_CHUNK = 500;
+
 function isTerminalStatus(status: string): boolean {
-  return status === "complained" || status === "bounced" || status === "failed";
+  return (
+    status === "complained" ||
+    status === "bounced" ||
+    status === "failed" ||
+    status === "canceled"
+  );
 }
 
 async function getDeliveryRow(jobId: string, recipient: string) {
@@ -311,24 +320,133 @@ export async function markDeliveryDelivered(
     .eq("recipient", normalizeEmail(recipient));
 }
 
+export async function insertPendingDeliveries(
+  jobId: string,
+  tenantId: string,
+  recipients: string[],
+): Promise<void> {
+  if (recipients.length === 0) {
+    return;
+  }
+
+  const supabase = getSupabaseAdmin();
+  const now = new Date().toISOString();
+
+  for (let i = 0; i < recipients.length; i += INSERT_CHUNK) {
+    const chunk = recipients.slice(i, i + INSERT_CHUNK).map((recipient) => ({
+      job_id: jobId,
+      tenant_id: tenantId,
+      recipient: normalizeEmail(recipient),
+      status: "pending" as const,
+      updated_at: now,
+    }));
+
+    const { error } = await supabase.from("email_deliveries").upsert(chunk, {
+      onConflict: "job_id,recipient",
+      ignoreDuplicates: true,
+    });
+
+    if (error) {
+      throw new Error(
+        `Failed to record pending deliveries for job ${jobId}: ${error.message}`,
+      );
+    }
+  }
+}
+
+export async function markDeliveriesCanceled(
+  jobId: string,
+  recipients: string[],
+): Promise<void> {
+  const unique = [
+    ...new Set(recipients.map(normalizeEmail).filter(Boolean)),
+  ];
+  if (unique.length === 0) {
+    return;
+  }
+
+  const supabase = getSupabaseAdmin();
+  const now = new Date().toISOString();
+
+  for (let i = 0; i < unique.length; i += INSERT_CHUNK) {
+    const chunk = unique.slice(i, i + INSERT_CHUNK);
+    const { error } = await supabase
+      .from("email_deliveries")
+      .update({
+        status: "canceled",
+        error: "Removed from job",
+        updated_at: now,
+      })
+      .eq("job_id", jobId)
+      .eq("status", "pending")
+      .in("recipient", chunk);
+
+    if (error) {
+      throw new Error(error.message);
+    }
+  }
+}
+
 export async function getDeliveriesForJob(
   jobId: string,
   tenantId: string,
 ): Promise<EmailDelivery[]> {
-  const supabase = getSupabaseAdmin();
+  return getDeliveriesForJobs([jobId], tenantId);
+}
 
-  const { data, error } = await supabase
-    .from("email_deliveries")
-    .select("*")
-    .eq("job_id", jobId)
-    .eq("tenant_id", tenantId)
-    .order("recipient", { ascending: true });
-
-  if (error) {
-    throw new Error(error.message);
+export async function getDeliveriesForJobs(
+  jobIds: string[],
+  tenantId: string,
+): Promise<EmailDelivery[]> {
+  const unique = [...new Set(jobIds.filter(Boolean))];
+  if (unique.length === 0) {
+    return [];
   }
 
-  return (data ?? []).map(asDelivery);
+  const supabase = getSupabaseAdmin();
+  const all: EmailDelivery[] = [];
+  const ID_CHUNK = 80;
+
+  for (let i = 0; i < unique.length; i += ID_CHUNK) {
+    const slice = unique.slice(i, i + ID_CHUNK);
+    for (let from = 0; ; from += DELIVERY_PAGE) {
+      const { data, error } = await supabase
+        .from("email_deliveries")
+        .select("*")
+        .eq("tenant_id", tenantId)
+        .in("job_id", slice)
+        .order("id", { ascending: true })
+        .range(from, from + DELIVERY_PAGE - 1);
+
+      if (error) {
+        throw new Error(error.message);
+      }
+
+      const rows = (data ?? []).map(asDelivery);
+      all.push(...rows);
+      if (rows.length < DELIVERY_PAGE) {
+        break;
+      }
+    }
+  }
+
+  all.sort((a, b) => a.recipient.localeCompare(b.recipient));
+  return all;
+}
+
+export async function getSendableRecipients(
+  jobId: string,
+  tenantId: string,
+  fallback: string[],
+): Promise<string[]> {
+  const deliveries = await getDeliveriesForJob(jobId, tenantId);
+  if (deliveries.length === 0) {
+    return fallback.map(normalizeEmail);
+  }
+
+  return deliveries
+    .filter((delivery) => delivery.status === "pending")
+    .map((delivery) => delivery.recipient);
 }
 
 export function summarizeDeliveries(deliveries: EmailDelivery[]) {
@@ -348,7 +466,8 @@ export function summarizeDeliveries(deliveries: EmailDelivery[]) {
       d.status !== "failed" &&
       d.status !== "bounced" &&
       d.status !== "pending" &&
-      d.status !== "complained",
+      d.status !== "complained" &&
+      d.status !== "canceled",
   ).length;
   const notOpened = deliveries.filter(
     (d) =>

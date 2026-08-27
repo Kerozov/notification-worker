@@ -13,6 +13,9 @@ export type SendBatchInput = {
   replyTo?: string | null;
   clientReference: string;
   attachments?: EmailAttachment[];
+  merge?: Record<string, Record<string, string>>;
+  /** Called after each ZeptoMail request of 50 so a crash cannot resend those people. */
+  onChunk?: (deliveries: DeliverySendResult[]) => Promise<void>;
 };
 
 export type SendBatchResult = {
@@ -73,9 +76,18 @@ export async function sendEmailBatch(
 
     const body = {
       from: { address: from.address, name: from.name },
-      to: chunk.map((address) => ({
-        email_address: { address, name: "" },
-      })),
+      to: chunk.map((address) => {
+        const mergeInfo = input.merge?.[address];
+        return {
+          email_address: {
+            address,
+            name: mergeInfo?.name ?? "",
+          },
+          ...(mergeInfo && Object.keys(mergeInfo).length > 0
+            ? { merge_info: mergeInfo }
+            : {}),
+        };
+      }),
       ...(replyTo
         ? { reply_to: [{ address: replyTo.address, name: replyTo.name }] }
         : {}),
@@ -88,6 +100,8 @@ export async function sendEmailBatch(
     };
 
     let response: Response;
+
+    const chunkDeliveries: DeliverySendResult[] = [];
 
     try {
       response = await fetch(url, {
@@ -105,8 +119,10 @@ export async function sendEmailBatch(
       failed += chunk.length;
       errors.push(message);
       for (const recipient of chunk) {
-        deliveries.push({ recipient, error: message });
+        chunkDeliveries.push({ recipient, error: message });
       }
+      deliveries.push(...chunkDeliveries);
+      if (input.onChunk) await input.onChunk(chunkDeliveries);
       continue;
     }
 
@@ -123,8 +139,10 @@ export async function sendEmailBatch(
       failed += chunk.length;
       errors.push(message);
       for (const recipient of chunk) {
-        deliveries.push({ recipient, error: message });
+        chunkDeliveries.push({ recipient, error: message });
       }
+      deliveries.push(...chunkDeliveries);
+      if (input.onChunk) await input.onChunk(chunkDeliveries);
       continue;
     }
 
@@ -132,8 +150,10 @@ export async function sendEmailBatch(
 
     for (const recipient of chunk) {
       sent += 1;
-      deliveries.push({ recipient, providerMessageId: requestId });
+      chunkDeliveries.push({ recipient, providerMessageId: requestId });
     }
+    deliveries.push(...chunkDeliveries);
+    if (input.onChunk) await input.onChunk(chunkDeliveries);
   }
 
   return { sent, failed, errors, deliveries };

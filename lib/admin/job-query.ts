@@ -1,7 +1,7 @@
 import { getSupabaseAdmin } from "@/lib/db/supabase";
 
 export const EMAIL_JOB_SELECT =
-  "id, tenant_id, status, subject, html, from_email, recipients, sent_count, failed_count, error, send_at, created_at, sent_at, updated_at, idempotency_key";
+  "id, tenant_id, status, subject, html, from_email, recipients, sent_count, failed_count, error, send_at, created_at, sent_at, updated_at, idempotency_key, kind, parent_id";
 
 export const SMS_JOB_SELECT =
   "id, tenant_id, status, body, sender, recipients, sent_count, failed_count, error, send_at, updated_at, created_at, sent_at";
@@ -73,6 +73,7 @@ type FilterableQuery<T> = {
   eq: (column: string, value: string) => T;
   gte: (column: string, value: string) => T;
   or: (filters: string) => T;
+  is: (column: string, value: null) => T;
 };
 
 function applyBaseFilters<T>(
@@ -159,12 +160,26 @@ function applySmsSearch<T>(query: FilterableQuery<T>, q: string): T {
   return query.or(buildSmsSearchOr(term)) as unknown as T;
 }
 
+function applyTopLevelEmailFilter<T>(
+  query: FilterableQuery<T>,
+  filters: JobListFilters,
+): FilterableQuery<T> {
+  const term = filters.q.trim();
+  if (/^[0-9a-f-]{36}$/i.test(term)) {
+    return query;
+  }
+  return query.is("parent_id", null) as FilterableQuery<T>;
+}
+
 function applyEmailFilters<T>(
   query: FilterableQuery<T>,
   filters: JobListFilters,
   tenantId: string | null,
 ): T {
-  const q = applyBaseFilters(query, filters, tenantId);
+  const q = applyTopLevelEmailFilter(
+    applyBaseFilters(query, filters, tenantId),
+    filters,
+  );
   return applyEmailSearch(q, filters.q);
 }
 

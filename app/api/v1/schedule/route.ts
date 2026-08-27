@@ -11,9 +11,10 @@ import { createEmailJob, resolveJobFrom } from "@/lib/jobs/process";
 import {
   assertCanDispatchAt,
   DelayedDispatchError,
-  dispatchScheduledEmailJob,
+  dispatchCreatedEmailJobs,
 } from "@/lib/trigger/schedule";
-import { scheduleJobBodySchema } from "@/lib/validation/email-job";
+import { parseJobMerge, scheduleJobBodySchema } from "@/lib/validation/email-job";
+import { emailJobNeedsDispatch } from "@/lib/jobs/campaign";
 
 export async function POST(request: NextRequest) {
   const tenant = await resolveTenantFromRequest(request);
@@ -74,7 +75,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { job, invalid } = await createEmailJob({
+    const { job, invalid, children } = await createEmailJob({
       tenantId: tenant.id,
       subject: parsed.data.subject,
       html: parsed.data.html,
@@ -84,13 +85,14 @@ export async function POST(request: NextRequest) {
       sendAt,
       idempotencyKey: parsed.data.idempotencyKey,
       attachments: parsed.data.attachments,
+      merge: parseJobMerge(parsed.data.merge),
     });
 
     let dispatch: "immediate" | "trigger" | undefined;
 
-    if (job.status === "pending") {
+    if (emailJobNeedsDispatch(job.status)) {
       try {
-        const result = await dispatchScheduledEmailJob(job.id, sendAt);
+        const result = await dispatchCreatedEmailJobs(job, children, { sendAt });
         dispatch = result.mode;
       } catch (error) {
         const message =
@@ -118,6 +120,17 @@ export async function POST(request: NextRequest) {
       sendAt: job.send_at,
       dispatch,
       invalid: invalid.length,
+      recipientCount: job.recipients.length,
+      kind: job.kind,
+      ...(children.length > 0
+        ? {
+            jobs: children.map((child) => ({
+              jobId: child.id,
+              status: child.status,
+              recipientCount: child.recipients.length,
+            })),
+          }
+        : {}),
       ...(invalid.length > 0 ? { invalidEmails: invalid } : {}),
       ...(job.error ? { errors: [job.error] } : {}),
     });

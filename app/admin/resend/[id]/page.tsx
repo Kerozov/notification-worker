@@ -2,11 +2,12 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getSupabaseAdmin } from "@/lib/db/supabase";
 import { hasAdminSession } from "@/lib/auth/admin";
-import { getDeliveriesForJob } from "@/lib/deliveries/store";
+import { getDeliveriesForEmailJob, isCampaignJob, listChildJobs } from "@/lib/jobs/campaign";
 import {
   getDeliveryStatsByJobIds,
   getJobDisplayCounts,
   isInvalidDeliveryError,
+  mergeJobDeliveryStats,
   resolveDisplayStatus,
 } from "@/lib/deliveries/stats";
 import { getJobById } from "@/lib/jobs/query";
@@ -61,9 +62,18 @@ export default async function ResendPage({
     .eq("id", job.tenant_id)
     .maybeSingle();
 
-  const deliveries = await getDeliveriesForJob(job.id, job.tenant_id);
-  const deliveryStatsMap = await getDeliveryStatsByJobIds([job.id]);
-  const stats = deliveryStatsMap.get(job.id);
+  const deliveries = await getDeliveriesForEmailJob(job);
+  const children = isCampaignJob(job) ? await listChildJobs(job.id) : [];
+  const deliveryStatsMap = await getDeliveryStatsByJobIds([
+    job.id,
+    ...children.map((child) => child.id),
+  ]);
+  const stats = isCampaignJob(job)
+    ? mergeJobDeliveryStats([
+        deliveryStatsMap.get(job.id),
+        ...children.map((child) => deliveryStatsMap.get(child.id)),
+      ])
+    : deliveryStatsMap.get(job.id);
   const counts = getJobDisplayCounts(job, stats);
   const displayStatus = resolveDisplayStatus(job, stats);
   const invalidDeliveries = deliveries.filter((d) =>

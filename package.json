@@ -13,6 +13,7 @@
     "migrate": "bun scripts/migrate.ts",
     "db:setup": "bun scripts/migrate.ts",
     "db:verify": "bun scripts/verify-db.ts",
+    "test": "bun test tests",
     "trigger:dev": "bunx trigger.dev@latest dev",
     "trigger:deploy": "bunx trigger.dev@latest deploy"
   },

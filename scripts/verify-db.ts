@@ -76,6 +76,9 @@ async function main(): Promise<void> {
     ["email_deliveries", "complained_at"],
     ["email_deliveries", "provider_message_id"],
     ["email_jobs", "attachments"],
+    ["email_jobs", "merge"],
+    ["email_jobs", "kind"],
+    ["email_jobs", "parent_id"],
   ];
 
   for (const [table, column] of columns) {

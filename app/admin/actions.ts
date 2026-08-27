@@ -52,6 +52,21 @@ function adminRedirect(channel: string, params: Record<string, string>): void {
 }
 
 function adminRedirectFromForm(formData: FormData, params: Record<string, string>): void {
+  const returnTo = String(formData.get("returnTo") ?? "").trim();
+  if (
+    returnTo === "/admin" ||
+    (returnTo.startsWith("/admin/") && !returnTo.startsWith("//"))
+  ) {
+    const url = new URL(returnTo, "https://worker.local");
+    const search = url.searchParams;
+    for (const [key, value] of Object.entries(params)) {
+      search.set(key, value);
+    }
+    const query = search.toString();
+    redirect(`${url.pathname}${query ? `?${query}` : ""}`);
+    return;
+  }
+
   const channel = String(formData.get("channel") ?? "all");
   const returnQuery = String(formData.get("returnQuery") ?? "").trim();
 
@@ -83,16 +98,32 @@ export async function sendScheduledEmailJob(formData: FormData): Promise<void> {
   let sent = false;
 
   try {
+    const { getJobById } = await import("@/lib/jobs/query");
+    const { listChildJobs, isCampaignJob } = await import("@/lib/jobs/campaign");
+    const { dispatchCreatedEmailJobs } = await import("@/lib/trigger/schedule");
     const { processJobById } = await import("@/lib/jobs/process");
-    const result = await processJobById(jobId);
+    const job = await getJobById(jobId);
 
-    if (!result) {
-      errorMessage =
-        "Job not found or not pending — only scheduled jobs can be sent now";
-    } else if (result.status === "failed") {
-      errorMessage = result.errors?.join("; ") ?? "Send failed";
+    if (job && isCampaignJob(job)) {
+      const children = await listChildJobs(job.id);
+      const pending = children.filter((child) => child.status === "pending");
+      if (pending.length === 0) {
+        errorMessage = "No pending send jobs left on this campaign";
+      } else {
+        await dispatchCreatedEmailJobs(job, pending);
+        sent = true;
+      }
     } else {
-      sent = true;
+      const result = await processJobById(jobId);
+
+      if (!result) {
+        errorMessage =
+          "Job not found or not pending — only scheduled jobs can be sent now";
+      } else if (result.status === "failed") {
+        errorMessage = result.errors?.join("; ") ?? "Send failed";
+      } else {
+        sent = true;
+      }
     }
   } catch (error) {
     errorMessage =
@@ -321,5 +352,91 @@ export async function resendFromPaste(formData: FormData): Promise<void> {
   } catch (error) {
     const message = error instanceof Error ? error.message : "Resend failed";
     redirect(`/admin/resend/${jobId}?error=${encodeURIComponent(message)}`);
+  }
+}
+
+export async function removeJobRecipient(formData: FormData): Promise<void> {
+  await requireAdmin();
+
+  const jobId = String(formData.get("jobId") ?? "");
+  const emails = String(formData.get("emails") ?? "");
+
+  if (!jobId) {
+    adminRedirectFromForm(formData, { error: "missing-job" });
+  }
+
+  try {
+    const { getJobById } = await import("@/lib/jobs/query");
+    const { removeRecipientsFromPendingJob } = await import("@/lib/jobs/process");
+    const job = await getJobById(jobId);
+    if (!job) {
+      adminRedirectFromForm(formData, { error: "job-not-found" });
+      return;
+    }
+
+    const list = emails
+      .split(/[\s,;]+/)
+      .map((value) => value.trim().toLowerCase())
+      .filter(Boolean);
+
+    const updated = await removeRecipientsFromPendingJob(job.tenant_id, jobId, list);
+    if (!updated) {
+      adminRedirectFromForm(formData, {
+        error: "Could not remove — address already sending or job is not pending",
+      });
+      return;
+    }
+
+    revalidatePath("/admin");
+    revalidatePath(`/admin/jobs/${jobId}`);
+    adminRedirectFromForm(formData, { removed: String(list.length) });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Failed to remove recipient";
+    adminRedirectFromForm(formData, { error: message });
+  }
+}
+
+export async function resendFailedFromJob(formData: FormData): Promise<void> {
+  await requireAdmin();
+
+  const jobId = String(formData.get("jobId") ?? "");
+  if (!jobId) {
+    redirect("/admin?error=missing-job");
+  }
+
+  try {
+    const { getJobById } = await import("@/lib/jobs/query");
+    const { getDeliveriesForEmailJob } = await import("@/lib/jobs/campaign");
+    const job = await getJobById(jobId);
+    if (!job) {
+      redirect("/admin?error=job-not-found");
+    }
+
+    const deliveries = await getDeliveriesForEmailJob(job);
+    const failed = [
+      ...new Set(
+        deliveries
+          .filter(
+            (row) =>
+              (row.status === "failed" || row.status === "bounced") &&
+              !row.complained_at,
+          )
+          .map((row) => row.recipient),
+      ),
+    ];
+
+    if (failed.length === 0) {
+      redirect(
+        `/admin/jobs/${jobId}?error=${encodeURIComponent("No failed deliveries to resend")}`,
+      );
+    }
+
+    const result = await resendJobAsNew(jobId, failed, { sendNow: true });
+    revalidatePath("/admin");
+    redirectResendResult(jobId, result);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Resend failed";
+    redirect(`/admin/jobs/${jobId}?error=${encodeURIComponent(message)}`);
   }
 }

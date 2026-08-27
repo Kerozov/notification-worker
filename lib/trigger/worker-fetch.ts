@@ -29,3 +29,34 @@ export async function invokeWorkerJobProcess(
 
   return body;
 }
+
+export async function invokeWorkerPendingDrain(
+  channel: "email" | "sms" = "email",
+): Promise<unknown> {
+  const workerUrl = process.env.WORKER_URL?.trim();
+  const cronSecret = process.env.CRON_SECRET?.trim();
+
+  if (!workerUrl || !cronSecret) {
+    throw new Error("WORKER_URL and CRON_SECRET are required in Trigger.dev");
+  }
+
+  const response = await fetch(
+    `${workerUrl}/api/internal/drain/${channel}`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${cronSecret}`,
+      },
+    },
+  );
+
+  const body = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    throw new Error(
+      `Worker drain failed (${response.status}): ${JSON.stringify(body)}`,
+    );
+  }
+
+  return body;
+}

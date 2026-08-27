@@ -34,6 +34,8 @@ export type EmailJobRow = {
   sent_at: string | null;
   updated_at: string;
   idempotency_key: string | null;
+  kind?: string | null;
+  parent_id?: string | null;
 };
 
 export type SmsJobRow = {
@@ -203,6 +205,7 @@ export function EmailJobsTable({
   channel = "all",
   showJobId = false,
   returnQuery = "",
+  childrenByParent,
 }: {
   jobs: EmailJobRow[];
   tenantIdToSlug: Map<string, string>;
@@ -213,6 +216,7 @@ export function EmailJobsTable({
   channel?: ChannelView;
   showJobId?: boolean;
   returnQuery?: string;
+  childrenByParent?: Map<string, EmailJobRow[]>;
 }) {
   if (jobs.length === 0) {
     return <div className={styles.empty}>{emptyMessage}</div>;
@@ -246,12 +250,19 @@ export function EmailJobsTable({
               (displayStatus === "failed" ||
                 displayStatus === "partial" ||
                 job.failed_count > 0);
+            const isCampaign = job.kind === "campaign";
+            const chunks = childrenByParent?.get(job.id) ?? [];
 
             return (
               <Fragment key={job.id}>
                 <tr className={styles.dataRow}>
                   <td>
-                    <StatusBadge status={displayStatus} />
+                    <div className={styles.statusStack}>
+                      <StatusBadge status={displayStatus} />
+                      {isCampaign ? (
+                        <span className={styles.campaignBadge}>Campaign</span>
+                      ) : null}
+                    </div>
                   </td>
                   {showJobId ? (
                     <td className={styles.mono} title={job.id}>
@@ -303,10 +314,11 @@ export function EmailJobsTable({
                         channel={channel}
                         returnQuery={returnQuery}
                         showSendNow={showActions}
+                        detailHref={`/admin/jobs/${job.id}`}
                       />
                       {!compact &&
                       !showActions &&
-                      (job.status === "sent" || job.status === "partial") ? (
+                      (job.status === "sent" || job.status === "partial" || job.failed_count > 0) ? (
                         <Link
                           className={styles.actionLink}
                           href={`/admin/resend/${job.id}`}
@@ -317,6 +329,71 @@ export function EmailJobsTable({
                     </div>
                   </td>
                 </tr>
+                {isCampaign && chunks.length > 0 && !compact ? (
+                  <tr className={styles.chunkRow}>
+                    <td colSpan={12}>
+                      <details className={styles.chunkDetails}>
+                        <summary className={styles.chunkSummary}>
+                          {chunks.length.toLocaleString("bg-BG")} send jobs ·{" "}
+                          {job.recipients.length.toLocaleString("bg-BG")} recipients
+                        </summary>
+                        <div className={styles.chunkTableWrap}>
+                          <table className={styles.chunkTable}>
+                            <thead>
+                              <tr>
+                                <th>Status</th>
+                                <th>Job</th>
+                                <th>Recipients</th>
+                                <th>Result</th>
+                                <th>Actions</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {chunks.map((child, index) => (
+                                <tr key={child.id}>
+                                  <td>
+                                    <StatusBadge
+                                      status={resolveDisplayStatus(
+                                        child,
+                                        deliveryStats.get(child.id),
+                                      )}
+                                    />
+                                  </td>
+                                  <td className={styles.mono} title={child.id}>
+                                    #{index + 1} · {shortId(child.id)}
+                                  </td>
+                                  <td>
+                                    {child.recipients.length.toLocaleString("bg-BG")}
+                                  </td>
+                                  <td className={styles.metricCell}>
+                                    {child.sent_count} sent · {child.failed_count} fail
+                                  </td>
+                                  <td className={styles.actionsCell}>
+                                    <EmailJobActions
+                                      job={{
+                                        id: child.id,
+                                        subject: `${job.subject} · job ${index + 1}`,
+                                        html: job.html,
+                                        from_email: child.from_email,
+                                        recipients: child.recipients,
+                                        send_at: child.send_at,
+                                        status: child.status,
+                                      }}
+                                      channel={channel}
+                                      returnQuery={returnQuery}
+                                      showSendNow={showActions}
+                                      detailHref={`/admin/jobs/${child.id}`}
+                                    />
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </details>
+                    </td>
+                  </tr>
+                ) : null}
                 {hasError && !compact ? (
                   <tr className={styles.errorRow}>
                     <td colSpan={12}>

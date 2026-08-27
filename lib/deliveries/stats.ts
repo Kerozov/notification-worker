@@ -60,19 +60,35 @@ export async function getDeliveryStatsByJobIds(
   }
 
   const supabase = getSupabaseAdmin();
+  const uniqueIds = [...new Set(jobIds.filter(Boolean))];
+  const PAGE = 1000;
+  const ID_CHUNK = 80;
+  const rows: Array<Record<string, unknown>> = [];
 
-  const { data, error } = await supabase
-    .from("email_deliveries")
-    .select(
-      "job_id, opened_at, clicked_at, complained_at, delivered_at, sent_at, status, error",
-    )
-    .in("job_id", jobIds);
+  for (let i = 0; i < uniqueIds.length; i += ID_CHUNK) {
+    const slice = uniqueIds.slice(i, i + ID_CHUNK);
+    for (let from = 0; ; from += PAGE) {
+      const { data, error } = await supabase
+        .from("email_deliveries")
+        .select(
+          "id, job_id, opened_at, clicked_at, complained_at, delivered_at, sent_at, status, error",
+        )
+        .in("job_id", slice)
+        .order("id", { ascending: true })
+        .range(from, from + PAGE - 1);
 
-  if (error) {
-    throw new Error(error.message);
+      if (error) {
+        throw new Error(error.message);
+      }
+
+      rows.push(...(data ?? []));
+      if ((data ?? []).length < PAGE) {
+        break;
+      }
+    }
   }
 
-  for (const row of data ?? []) {
+  for (const row of rows) {
     const jobId = row.job_id as string;
     const current = stats.get(jobId) ?? emptyStats();
     current.total += 1;
@@ -102,7 +118,14 @@ export async function getDeliveryStatsByJobIds(
       current.delivered += 1;
     }
 
-    if (isEngagementEligible(row as typeof row) && !row.opened_at) {
+    if (
+      isEngagementEligible({
+        sent_at: (row.sent_at as string | null) ?? null,
+        status: String(row.status ?? ""),
+        error: (row.error as string | null) ?? null,
+      }) &&
+      !row.opened_at
+    ) {
       current.notOpened += 1;
     }
 
@@ -110,6 +133,26 @@ export async function getDeliveryStatsByJobIds(
   }
 
   return stats;
+}
+
+export function mergeJobDeliveryStats(
+  parts: Array<JobDeliveryStats | undefined>,
+): JobDeliveryStats {
+  const out = emptyStats();
+  for (const part of parts) {
+    if (!part) continue;
+    out.sent += part.sent;
+    out.invalid += part.invalid;
+    out.failed += part.failed;
+    out.bounced += part.bounced;
+    out.delivered += part.delivered;
+    out.opened += part.opened;
+    out.clicked += part.clicked;
+    out.complained += part.complained;
+    out.notOpened += part.notOpened;
+    out.total += part.total;
+  }
+  return out;
 }
 
 export function resolveDisplayStatus(

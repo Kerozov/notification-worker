@@ -9,17 +9,17 @@ import {
 } from "@/lib/rate-limit/tenant";
 import {
   createEmailJob,
-  processJobById,
   resolveJobFrom,
 } from "@/lib/jobs/process";
 import {
   assertCanDispatchAt,
   DelayedDispatchError,
-  dispatchScheduledEmailJob,
+  dispatchCreatedEmailJobs,
   IMMEDIATE_WINDOW_MS,
   isImmediateSend,
 } from "@/lib/trigger/schedule";
-import { batchJobsBodySchema } from "@/lib/validation/email-job";
+import { batchJobsBodySchema, parseJobMerge } from "@/lib/validation/email-job";
+import { emailJobNeedsDispatch } from "@/lib/jobs/campaign";
 
 /**
  * Submit multiple email jobs in one request (e.g. all automations for one subscriber).
@@ -101,7 +101,7 @@ export async function POST(request: NextRequest) {
     const sendAt = new Date(item.sendAt);
 
     try {
-      const { job, invalid } = await createEmailJob({
+      const { job, invalid, children } = await createEmailJob({
         tenantId: tenant.id,
         subject: item.subject,
         html: item.html,
@@ -111,6 +111,7 @@ export async function POST(request: NextRequest) {
         sendAt,
         idempotencyKey: item.idempotencyKey,
         attachments: item.attachments,
+        merge: parseJobMerge(item.merge),
       });
 
       if (invalid.length > 0 && job.status === "failed") {
@@ -126,23 +127,25 @@ export async function POST(request: NextRequest) {
 
       const isImmediate = isImmediateSend(sendAt, now);
 
-      if (job.status === "pending" && isImmediate) {
-        const processed = await processJobById(job.id);
+      if (emailJobNeedsDispatch(job.status) && isImmediate) {
+        const dispatched = await dispatchCreatedEmailJobs(job, children);
         results.push({
           idempotencyKey: item.idempotencyKey,
-          jobId: processed?.jobId ?? job.id,
-          status: processed?.status ?? job.status,
+          jobId: job.id,
+          status: dispatched.result?.status ?? job.status,
           sendAt: job.send_at,
-          dispatch: "immediate",
-          sent: processed?.sent,
-          failed: processed?.failed,
+          dispatch: dispatched.mode,
+          sent: dispatched.result?.sent,
+          failed: dispatched.result?.failed,
         });
         continue;
       }
 
-      if (job.status === "pending" && !isImmediate) {
+      if (emailJobNeedsDispatch(job.status) && !isImmediate) {
         try {
-          const dispatched = await dispatchScheduledEmailJob(job.id, sendAt);
+          const dispatched = await dispatchCreatedEmailJobs(job, children, {
+            sendAt,
+          });
           results.push({
             idempotencyKey: item.idempotencyKey,
             jobId: job.id,

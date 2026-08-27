@@ -1,7 +1,9 @@
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import {
+  parseJobMerge,
   parseStoredAttachments,
   type EmailAttachment,
+  type JobMerge,
 } from "@/lib/validation/email-job";
 
 export type Tenant = {
@@ -23,6 +25,8 @@ export type EmailJobStatus =
   | "failed"
   | "canceled";
 
+export type EmailJobKind = "send" | "campaign";
+
 export type EmailJob = {
   id: string;
   tenant_id: string;
@@ -41,6 +45,9 @@ export type EmailJob = {
   updated_at: string;
   sent_at: string | null;
   attachments: EmailAttachment[];
+  merge: JobMerge;
+  kind: EmailJobKind;
+  parent_id: string | null;
 };
 
 export type SmsJobStatus =
@@ -91,9 +98,19 @@ export function getSupabaseAdmin(): SupabaseClient {
 
 export function asEmailJob(row: Record<string, unknown>): EmailJob {
   const job = row as unknown as EmailJob;
+  const recipients = Array.isArray(row.recipients)
+    ? (row.recipients as unknown[]).map((value) => String(value))
+    : [];
   return {
     ...job,
+    recipients,
     attachments: parseStoredAttachments(row.attachments),
+    merge: parseJobMerge(row.merge),
+    kind: row.kind === "campaign" ? "campaign" : "send",
+    parent_id:
+      typeof row.parent_id === "string" && row.parent_id
+        ? row.parent_id
+        : null,
   };
 }
 

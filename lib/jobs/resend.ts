@@ -1,9 +1,11 @@
 import {
   createEmailJob,
-  processJobById,
   type CreateJobInput,
 } from "@/lib/jobs/process";
 import { getJobById } from "@/lib/jobs/query";
+import { parseJobMerge } from "@/lib/validation/email-job";
+import { dispatchCreatedEmailJobs } from "@/lib/trigger/schedule";
+import { resolveSendContent } from "@/lib/jobs/campaign";
 
 export async function resendJobAsNew(
   sourceJobId: string,
@@ -17,28 +19,34 @@ export async function resendJobAsNew(
   }
 
   const sendAt = options?.sendAt ?? new Date();
+  const content = await resolveSendContent(source);
   const input: CreateJobInput = {
     tenantId: source.tenant_id,
-    subject: source.subject,
-    html: source.html,
+    subject: content.subject,
+    html: content.html,
     recipients,
     from: source.from_email,
     replyTo: source.reply_to,
     sendAt,
     idempotencyKey: null,
-    attachments: source.attachments,
+    attachments: content.attachments,
+    merge: parseJobMerge(source.merge),
   };
 
-  const { job, invalid } = await createEmailJob(input);
+  const { job, invalid, children } = await createEmailJob(input);
 
   if (options?.sendNow !== false && sendAt.getTime() <= Date.now()) {
-    const result = await processJobById(job.id);
+    const dispatched = await dispatchCreatedEmailJobs(job, children);
 
     return {
       job,
       invalid,
-      processed: result,
+      processed: dispatched.result,
     };
+  }
+
+  if (sendAt.getTime() > Date.now()) {
+    await dispatchCreatedEmailJobs(job, children, { sendAt });
   }
 
   return { job, invalid, processed: null };

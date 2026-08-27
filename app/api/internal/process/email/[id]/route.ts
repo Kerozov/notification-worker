@@ -5,6 +5,8 @@ import {
 } from "@/lib/internal-auth";
 import { processJobById, recordCronRun } from "@/lib/jobs/process";
 
+export const maxDuration = 300;
+
 type RouteContext = {
   params: Promise<{ id: string }>;
 };

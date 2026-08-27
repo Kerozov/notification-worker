@@ -45,7 +45,8 @@ cp .env.example .env.local
 ```
 supabase/migrations/001_init.sql
 …
-supabase/migrations/008_email_job_attachments.sql
+supabase/migrations/009_campaign_jobs.sql
+supabase/migrations/010_campaign_parent.sql
 ```
 
 3. Install dependencies and seed tenants:
@@ -82,7 +83,8 @@ Authorization: Bearer <tenant-api-key>
 Content-Type: application/json
 ```
 
-Body fields:
+- `recipients` — array of addresses, max 50,000. The worker stores the full list on a **campaign** job (the admin view), then splits it into send jobs of 250. Do not fan out one job per person. Automations stay one job per person.
+- `merge` — optional map of email → `{ key: value }` used as ZeptoMail merge fields (`{{name}}`, `{{unsubscribe_url}}`, …)
 
 - `from` — sender address from the calling app, e.g. `hello@yourdomain.com` or `Brand Name <hello@yourdomain.com>` (must be a ZeptoMail-verified domain)
 - If omitted, worker uses tenant `default_from` from the database (set via seed env)
@@ -146,6 +148,7 @@ curl https://YOUR_WORKER/api/v1/jobs/JOB_ID \
 ```
 
 Response includes a `tracking` summary: `opened`, `notOpened`, `sent`, `failed`.
+A campaign job also returns `kind: "campaign"` and `jobs` — the 250-recipient send pockets. Tracking is the union of those pockets.
 
 Per-recipient details:
 
@@ -164,6 +167,8 @@ curl "https://YOUR_WORKER/api/v1/jobs/JOB_ID?notOpened=true" \
 Returns `notOpenedEmails: ["a@b.com", ...]` plus the `tracking` summary.
 
 ### Cancel pending job
+
+Cancel a pending send job, or a campaign (remaining pending pockets stop; already-sent mail is left alone).
 
 ```bash
 curl -X DELETE https://YOUR_WORKER/api/v1/jobs/JOB_ID \
@@ -217,9 +222,12 @@ open counts, failed jobs, and cancel for pending scheduled jobs.
 
 ## Limits (v1)
 
-- Max 500 recipients per job
-- Max 10 jobs/minute per tenant
+- Max 50,000 recipients per HTTP request. The worker keeps that list on a parent campaign job and sends in pockets of 250 (ZeptoMail is batched 50/request).
+- Admin lists the campaign. Open / expand it to cancel the campaign, one pocket, or one address, and to resend failures.
+- Max 500 jobs/minute per tenant (override with `MAX_JOBS_PER_MINUTE`)
 - Idempotency: same `tenant + idempotencyKey` returns the existing job
+- Optional `merge`: `{ "person@x.com": { "name": "Ivan", "unsubscribe_url": "https://…" } }` for ZeptoMail `{{name}}` tags in subject/html
+- `POST /api/v1/jobs/:id/recipients/remove` drops addresses from a pending job (unsubscribe)
 
 ## Project structure
 

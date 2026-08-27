@@ -86,7 +86,7 @@ CREATE TABLE IF NOT EXISTS email_deliveries (
   status text NOT NULL DEFAULT 'pending'
     CHECK (status IN (
       'pending', 'sent', 'failed', 'delivered', 'opened',
-      'clicked', 'bounced', 'complained'
+      'clicked', 'bounced', 'complained', 'canceled'
     )),
   error text,
   sent_at timestamptz,
@@ -155,7 +155,7 @@ ALTER TABLE email_deliveries
   ADD CONSTRAINT email_deliveries_status_check
   CHECK (status IN (
     'pending', 'sent', 'failed', 'delivered', 'opened',
-    'clicked', 'bounced', 'complained'
+    'clicked', 'bounced', 'complained', 'canceled'
   ));
 
 ALTER TABLE email_deliveries
@@ -242,10 +242,49 @@ ALTER TABLE email_jobs
 
 
 -- ---------------------------------------------------------------------
+-- 009 campaign jobs: merge fields + cancel one recipient
+-- ---------------------------------------------------------------------
+ALTER TABLE email_jobs
+  ADD COLUMN IF NOT EXISTS merge jsonb NOT NULL DEFAULT '{}'::jsonb;
+
+ALTER TABLE email_deliveries
+  DROP CONSTRAINT IF EXISTS email_deliveries_status_check;
+
+ALTER TABLE email_deliveries
+  ADD CONSTRAINT email_deliveries_status_check
+  CHECK (status IN (
+    'pending', 'sent', 'failed', 'delivered', 'opened',
+    'clicked', 'bounced', 'complained', 'canceled'
+  ));
+
+
+-- ---------------------------------------------------------------------
+-- 010 campaign parent + child send jobs
+-- ---------------------------------------------------------------------
+ALTER TABLE email_jobs
+  ADD COLUMN IF NOT EXISTS parent_id uuid REFERENCES email_jobs(id) ON DELETE CASCADE,
+  ADD COLUMN IF NOT EXISTS kind text NOT NULL DEFAULT 'send';
+
+ALTER TABLE email_jobs
+  DROP CONSTRAINT IF EXISTS email_jobs_kind_check;
+
+ALTER TABLE email_jobs
+  ADD CONSTRAINT email_jobs_kind_check
+  CHECK (kind IN ('send', 'campaign'));
+
+CREATE INDEX IF NOT EXISTS email_jobs_parent_id_idx
+  ON email_jobs (parent_id);
+
+CREATE INDEX IF NOT EXISTS email_jobs_pending_send_kind_idx
+  ON email_jobs (send_at)
+  WHERE status = 'pending' AND kind = 'send';
+
+
+-- ---------------------------------------------------------------------
 -- Проверка
 -- ---------------------------------------------------------------------
 SELECT
-  'Setup complete: notification-worker schema ready (001–008).' AS result,
+  'Setup complete: notification-worker schema ready (001–010).' AS result,
   (SELECT count(*) FROM tenants) AS tenants,
   (SELECT count(*) FROM email_jobs) AS email_jobs,
   (SELECT count(*) FROM sms_jobs) AS sms_jobs;

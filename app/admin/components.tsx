@@ -83,11 +83,13 @@ export function formatRecipients(recipients: string[] | null | undefined): strin
     return "0";
   }
 
+  const count = recipients.length.toLocaleString("bg-BG");
+
   if (recipients.length === 1) {
     return recipients[0];
   }
 
-  return `${recipients.length} · ${recipients.slice(0, 2).join(", ")}${recipients.length > 2 ? "…" : ""}`;
+  return `${count} · ${recipients.slice(0, 2).join(", ")}${recipients.length > 2 ? "…" : ""}`;
 }
 
 export function shortId(value: string): string {

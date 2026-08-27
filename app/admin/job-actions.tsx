@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useTransition, type ReactNode } from "react";
+import Link from "next/link";
 import styles from "./admin.module.css";
 import {
   cancelScheduledEmailJob,
@@ -109,13 +110,14 @@ function EmailPreviewContent({ job }: { job: EmailPreviewJob }) {
           <dd>{job.from_email ?? "—"}</dd>
         </div>
         <div>
-          <dt>Recipients</dt>
-          <dd className={styles.previewRecipients}>
-            {job.recipients.map((recipient) => (
-              <span key={recipient} className={styles.recipientPill}>
-                {recipient}
-              </span>
-            ))}
+          <dt>Recipients ({job.recipients.length.toLocaleString("bg-BG")})</dt>
+          <dd>
+            <textarea
+              className={styles.previewRecipientList}
+              readOnly
+              rows={Math.min(12, Math.max(4, job.recipients.length))}
+              value={job.recipients.join("\n")}
+            />
           </dd>
         </div>
         <div>
@@ -166,11 +168,13 @@ export function EmailJobActions({
   channel,
   returnQuery,
   showSendNow = false,
+  detailHref,
 }: {
   job: EmailPreviewJob;
   channel: ChannelView;
   returnQuery: string;
   showSendNow?: boolean;
+  detailHref?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [pending, startTransition] = useTransition();
@@ -178,6 +182,11 @@ export function EmailJobActions({
   return (
     <>
       <div className={styles.actionGroup}>
+        {detailHref ? (
+          <Link className={styles.viewButton} href={detailHref}>
+            Open
+          </Link>
+        ) : null}
         <button
           type="button"
           className={styles.viewButton}
@@ -194,6 +203,9 @@ export function EmailJobActions({
             <input type="hidden" name="jobId" value={job.id} />
             <input type="hidden" name="channel" value={channel} />
             <input type="hidden" name="returnQuery" value={returnQuery} />
+            {detailHref ? (
+              <input type="hidden" name="returnTo" value={detailHref} />
+            ) : null}
             <button
               className={styles.sendNowButton}
               type="submit"
@@ -212,6 +224,9 @@ export function EmailJobActions({
             <input type="hidden" name="jobId" value={job.id} />
             <input type="hidden" name="channel" value={channel} />
             <input type="hidden" name="returnQuery" value={returnQuery} />
+            {detailHref ? (
+              <input type="hidden" name="returnTo" value={detailHref} />
+            ) : null}
             <button
               className={styles.cancelButton}
               type="submit"

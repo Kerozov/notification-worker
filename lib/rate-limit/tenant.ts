@@ -1,8 +1,7 @@
 import { getSupabaseAdmin } from "@/lib/db/supabase";
 
-// Per-tenant guard against runaway loops. Campaigns create one job per
-// personalized recipient, so the old default of 10 blocked any real send.
-// Configurable via env; defaults high enough for first-party campaigns.
+// Campaigns arrive as one HTTP request. The worker stores the full list, then
+// opens send jobs of 250. A few hundred jobs/minute covers first-party apps.
 const DEFAULT_MAX_JOBS_PER_MINUTE = 500;
 
 function getMaxJobsPerMinute(): number {

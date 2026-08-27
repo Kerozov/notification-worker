@@ -3,11 +3,13 @@ import { redirect } from "next/navigation";
 import { getSupabaseAdmin } from "@/lib/db/supabase";
 import { hasAdminSession } from "@/lib/auth/admin";
 import {
+  EMAIL_JOB_SELECT,
   fetchFilteredEmailJobs,
   fetchFilteredSmsJobs,
   parseJobListFilters,
 } from "@/lib/admin/job-query";
-import { getDeliveryStatsByJobIds } from "@/lib/deliveries/stats";
+import { getDeliveryStatsByJobIds, mergeJobDeliveryStats } from "@/lib/deliveries/stats";
+import { listChildrenForParents } from "@/lib/jobs/campaign";
 import { listTenantsForAdmin } from "@/lib/tenants/store";
 import styles from "./admin.module.css";
 import { formatDateTime, formatRelative } from "./components";
@@ -45,9 +47,6 @@ type SearchParams = Promise<{
   sort?: string;
   sortDir?: string;
 }>;
-
-const EMAIL_SELECT =
-  "id, tenant_id, status, subject, html, from_email, recipients, sent_count, failed_count, error, send_at, created_at, sent_at, updated_at, idempotency_key";
 
 const SMS_SELECT =
   "id, tenant_id, status, body, sender, recipients, sent_count, failed_count, error, send_at, updated_at, created_at";
@@ -185,18 +184,21 @@ export default async function AdminPage({
           .maybeSingle(),
         supabase
           .from("email_jobs")
-          .select(EMAIL_SELECT)
+          .select(EMAIL_JOB_SELECT)
+          .is("parent_id", null)
           .gte("created_at", since)
           .order("created_at", { ascending: false }),
         supabase
           .from("email_jobs")
-          .select(EMAIL_SELECT)
+          .select(EMAIL_JOB_SELECT)
+          .is("parent_id", null)
           .eq("status", "pending")
           .order("send_at", { ascending: true })
           .limit(8),
         supabase
           .from("email_jobs")
-          .select(EMAIL_SELECT)
+          .select(EMAIL_JOB_SELECT)
+          .is("parent_id", null)
           .eq("status", "failed")
           .order("updated_at", { ascending: false })
           .limit(5),
@@ -274,14 +276,38 @@ export default async function AdminPage({
     channel === "email" && emailList ? emailList.jobs : pendingEmail;
   const smsJobs = channel === "sms" && smsList ? smsList.jobs : pendingSms;
 
+  const campaignIds = [
+    ...new Set(
+      [...emailJobs, ...failedEmail]
+        .filter((job) => job.kind === "campaign")
+        .map((job) => job.id),
+    ),
+  ];
+  const childrenByParent = await listChildrenForParents(campaignIds);
+  const childIds = [...childrenByParent.values()].flat().map((job) => job.id);
+
   const deliveryStats = await getDeliveryStatsByJobIds([
     ...new Set([
       ...emailJobs.map((job) => job.id),
       ...smsJobs.map((job) => job.id),
       ...failedEmail.map((job) => job.id),
+      ...childIds,
     ]),
   ]);
 
+  for (const job of [...emailJobs, ...failedEmail]) {
+    if (job.kind !== "campaign") continue;
+    const children = childrenByParent.get(job.id) ?? [];
+    deliveryStats.set(
+      job.id,
+      mergeJobDeliveryStats([
+        deliveryStats.get(job.id),
+        ...children.map((child) => deliveryStats.get(child.id)),
+      ]),
+    );
+  }
+
+  const childRows = childrenByParent as unknown as Map<string, EmailJobRow[]>;
 
   return (
     <main className={styles.adminPage}>
@@ -420,6 +446,7 @@ export default async function AdminPage({
                     showJobId
                     channel="email"
                     returnQuery={returnQuery}
+                    childrenByParent={childRows}
                   />
                   <JobsPagination
                     channel="email"
@@ -510,6 +537,7 @@ export default async function AdminPage({
                 showActions
                 channel={channel}
                 returnQuery={returnQuery}
+                childrenByParent={childRows}
               />
             </SectionBlock>
             <SectionBlock
@@ -550,6 +578,7 @@ export default async function AdminPage({
                   emptyMessage="No failed email jobs."
                   compact
                   returnQuery={returnQuery}
+                  childrenByParent={childRows}
                 />
                 <p className={styles.sectionFooterLink}>
                   <Link
