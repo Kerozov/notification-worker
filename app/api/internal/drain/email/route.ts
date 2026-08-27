@@ -34,7 +34,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
-/** Vercel Cron is a GET with Authorization: Bearer $CRON_SECRET. */
+/** Same as POST — for ops calls that prefer GET. */
 export async function GET(request: NextRequest) {
   return POST(request);
 }

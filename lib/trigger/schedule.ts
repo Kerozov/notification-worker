@@ -64,7 +64,10 @@ export async function dispatchScheduledEmailJob(
       { delay: sendAt },
     );
   } catch (error) {
-    console.error("dispatchScheduledEmailJob trigger failed; drain will send at send_at:", error);
+    console.error(
+      "dispatchScheduledEmailJob trigger failed; job stays pending:",
+      error,
+    );
   }
 
   return { mode: "trigger" };

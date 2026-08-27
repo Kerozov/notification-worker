@@ -1,8 +1,0 @@
-{
-  "crons": [
-    {
-      "path": "/api/internal/drain/email",
-      "schedule": "* * * * *"
-    }
-  ]
-}

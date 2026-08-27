@@ -886,7 +886,7 @@ export async function findOpenCampaigns(limit = 10): Promise<EmailJob[]> {
 /**
  * Create send jobs for campaign parents that were stored without a full split,
  * then hand only the new pockets to Trigger. Already-pending pockets are left
- * for the drain — re-triggering them every minute would stampede the queue.
+ * alone — re-triggering them on every heal would stampede the queue.
  */
 export async function healOpenCampaigns(limit = 10): Promise<{
   campaigns: number;
