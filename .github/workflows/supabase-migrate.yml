@@ -1,0 +1,66 @@
+name: Supabase migrations
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "supabase/migrations/**"
+      - ".github/workflows/supabase-migrate.yml"
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Link Supabase project
+        run: supabase link --project-ref "$SUPABASE_PROJECT_ID"
+
+      - name: Baseline pre-CI migrations
+        run: |
+          set -euo pipefail
+          cat > /tmp/ensure_migrations_table.sql <<'SQL'
+          CREATE SCHEMA IF NOT EXISTS supabase_migrations;
+
+          CREATE TABLE IF NOT EXISTS supabase_migrations.schema_migrations (
+            version text PRIMARY KEY,
+            name text,
+            statements text[]
+          );
+          SQL
+          supabase db query --linked -f /tmp/ensure_migrations_table.sql
+
+          {
+            echo "INSERT INTO supabase_migrations.schema_migrations (version, name, statements)"
+            echo "VALUES"
+            first=true
+            for f in supabase/migrations/[0-9]*_*.sql; do
+              base=$(basename "$f" .sql)
+              case "$base" in
+                011_ci_test) continue ;;
+              esac
+              version="${base%%_*}"
+              name="${base#*_}"
+              if [ "$first" = true ]; then
+                printf "  ('%s', '%s', ARRAY[]::text[])" "$version" "$name"
+                first=false
+              else
+                printf ",\n  ('%s', '%s', ARRAY[]::text[])" "$version" "$name"
+              fi
+            done
+            echo
+            echo "ON CONFLICT (version) DO NOTHING;"
+          } > /tmp/baseline.sql
+          cat /tmp/baseline.sql
+          supabase db query --linked -f /tmp/baseline.sql
+
+      - name: Apply pending migrations
+        run: supabase db push --yes

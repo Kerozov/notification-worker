@@ -325,7 +325,7 @@ async function insertJobRow(
 
   if (error && isMissingCampaignColumns(error)) {
     throw new Error(
-      "email_jobs.kind / parent_id missing — run supabase/migrations/010_campaign_parent.sql",
+      "email_jobs.kind / parent_id missing — run supabase/scripts/SETUP_DATABASE.sql or migration 010_campaign_parent.sql",
     );
   }
 
@@ -363,7 +363,7 @@ async function insertJobRows(rows: Record<string, unknown>[]): Promise<EmailJob[
 
     if (error && isMissingCampaignColumns(error)) {
       throw new Error(
-        "email_jobs.kind / parent_id missing — run supabase/migrations/010_campaign_parent.sql",
+        "email_jobs.kind / parent_id missing — run supabase/scripts/SETUP_DATABASE.sql or migration 010_campaign_parent.sql",
       );
     }
 

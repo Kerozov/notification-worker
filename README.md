@@ -40,14 +40,13 @@ ZeptoMail webhook ──▶ POST /api/webhooks/zeptomail ──▶ email_deliver
 cp .env.example .env.local
 ```
 
-2. Run the Supabase migrations (SQL editor), in order:
+2. Run the Supabase setup (SQL editor) — see [`supabase/SETUP.md`](supabase/SETUP.md):
 
 ```
-supabase/migrations/001_init.sql
-…
-supabase/migrations/009_campaign_jobs.sql
-supabase/migrations/010_campaign_parent.sql
+supabase/scripts/SETUP_DATABASE.sql
 ```
+
+For incremental schema changes after CI is enabled, add numbered files under `supabase/migrations/` (e.g. `012_your_change.sql`).
 
 3. Install dependencies and seed tenants:
 
@@ -220,6 +219,31 @@ Sign in via `/api/admin/login?secret=YOUR_ADMIN_SECRET` (sets a cookie), then op
 Shows last processed send, 24h job counts, per-tenant activity, pending queue, recent jobs with
 open counts, failed jobs, and cancel for pending scheduled jobs.
 
+Worker stats live in the admin panel — not in GitHub Actions.
+
+## Supabase CI migrations
+
+On push to `main`, when files under `supabase/migrations/` change, GitHub Actions runs
+`supabase db push` against production. The workflow baselines migrations `001`–`010`
+(already applied manually via `SETUP_DATABASE.sql`) and only runs new ones such as
+`011_ci_test.sql` and anything after.
+
+Add these **repository secrets** (Settings → Secrets and variables → Actions):
+
+| Secret | Where to get it |
+|--------|-----------------|
+| `SUPABASE_ACCESS_TOKEN` | [supabase.com/dashboard/account/tokens](https://supabase.com/dashboard/account/tokens) |
+| `SUPABASE_PROJECT_ID` | Project → Settings → General → Reference ID |
+| `SUPABASE_DB_PASSWORD` | Project → Settings → Database → Database password |
+
+After the secrets are set, merge to `main` — the first run should apply only
+`011_ci_test.sql` (a no-op notice). Future schema changes: add `012_your_change.sql`,
+push to `main`, CI applies it automatically.
+
+**CI results:** GitHub → **Actions** → workflow **„Supabase migrations“**.
+
+Details: [`supabase/SETUP.md`](supabase/SETUP.md).
+
 ## Limits (v1)
 
 - Max 50,000 recipients per HTTP request. The worker keeps that list on a parent campaign job and sends in pockets of 250 (ZeptoMail is batched 50/request).
@@ -254,5 +278,6 @@ src/trigger/send-sms-job.ts
 trigger.config.ts
 scripts/seed.ts
 scripts/migrate.ts
+supabase/scripts/SETUP_DATABASE.sql
 supabase/migrations/*.sql
 ```

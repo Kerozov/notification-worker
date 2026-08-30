@@ -74,7 +74,7 @@ function resolveHostViaNslookup(servername: string): string {
 
 function listMigrationFiles(): string[] {
   return readdirSync(MIGRATIONS_DIR)
-    .filter((name) => /^\d{3}_.*\.sql$/.test(name))
+    .filter((name) => /^\d+_.*\.sql$/.test(name) && !name.endsWith("_ci_test.sql"))
     .sort();
 }
 

@@ -65,7 +65,7 @@ async function main(): Promise<void> {
     checks.push({
       name: `table ${table}`,
       ok,
-      hint: ok ? undefined : "Run supabase/setup-all.sql or bun run db:setup",
+      hint: ok ? undefined : "Run supabase/scripts/SETUP_DATABASE.sql or bun run db:setup",
     });
   }
 
@@ -92,7 +92,7 @@ async function main(): Promise<void> {
     checks.push({
       name: `${table}.${column}`,
       ok,
-      hint: ok ? undefined : "Run supabase/setup-all.sql",
+      hint: ok ? undefined : "Run supabase/scripts/SETUP_DATABASE.sql",
     });
   }
 
