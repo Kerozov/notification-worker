@@ -1,48 +1,47 @@
 #!/usr/bin/env bun
 import { config } from "dotenv";
 import { getSupabaseAdmin } from "../lib/db/supabase";
-import { isGhlNotifierUrl } from "../lib/sms/send";
+import {
+  NOTIFIER_LINKS_URL,
+  NOTIFIER_MESSAGES_URL,
+  formatNotifierError,
+} from "../lib/sms/notifier";
 
 config({ path: ".env.local" });
 
-const GHL_URL =
-  process.env.NOTIFIER_API_URL?.trim() ||
-  "https://notifierbg.com/api/integrations/callbacks/go-high-level";
-const BULK_URL = "https://usenotifier.com/api/sms/bulk";
 const TEST_PHONE = "+359888000001";
 
-async function probeNotifier(
+async function probeJson(
   label: string,
   url: string,
   apiKey: string,
-  ghl: boolean,
+  body: unknown,
 ): Promise<string> {
   try {
     const response = await fetch(url, {
       method: "POST",
       headers: {
-        Authorization: ghl ? apiKey : `Bearer ${apiKey}`,
+        Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify(
-        ghl
-          ? {
-              phone: TEST_PHONE,
-              customData: {
-                content: "diagnostic ping — ignore",
-                send_at: new Date().toISOString(),
-              },
-            }
-          : [
-              {
-                to: TEST_PHONE,
-                body: "diagnostic ping — ignore",
-                uuid: `diag:${TEST_PHONE}`,
-              },
-            ],
-      ),
+      body: JSON.stringify(body),
     });
     const text = await response.text();
+    let parsed: unknown = null;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      parsed = text;
+    }
+
+    if (!response.ok) {
+      const message =
+        typeof parsed === "object" && parsed
+          ? formatNotifierError(parsed, response.status)
+          : text.slice(0, 200);
+      return `${label}: HTTP ${response.status} — ${message}`;
+    }
+
     return `${label}: HTTP ${response.status} — ${text.slice(0, 200)}`;
   } catch (error) {
     return `${label}: ${error instanceof Error ? error.message : "fetch failed"}`;
@@ -50,8 +49,8 @@ async function probeNotifier(
 }
 
 async function main(): Promise<void> {
-  console.log("NOTIFIER_API_URL env:", process.env.NOTIFIER_API_URL || "(not set → bulk default in code)");
-  console.log("GHL mode for env URL:", isGhlNotifierUrl(GHL_URL));
+  console.log("Notifier links URL:", NOTIFIER_LINKS_URL);
+  console.log("Notifier messages URL:", NOTIFIER_MESSAGES_URL);
 
   const supabase = getSupabaseAdmin();
   const { data: tenants, error } = await supabase
@@ -74,17 +73,40 @@ async function main(): Promise<void> {
   const hc =
     tenants?.find((t) => t.slug === "healthyconfident") ??
     tenants?.find((t) => t.slug === "healthy-confident") ??
-    tenants?.find((t) => t.slug === "hc");
+    tenants?.find((t) => t.slug === "hc") ??
+    tenants?.find((t) => t.slug === "website-zara") ??
+    tenants?.[0];
 
   if (!hc?.notifier_api_key) {
-    console.log("\n❌ healthy-confident tenant has no notifier_api_key — run: bun run seed");
+    console.log("\n❌ No tenant with notifier_api_key — run: bun run seed");
     return;
   }
 
   const key = (hc.notifier_api_key as string).trim();
-  console.log("\nNotifier probes (test phone only, may not actually send):");
-  console.log(await probeNotifier("GHL", GHL_URL, key, true));
-  console.log(await probeNotifier("Bulk", BULK_URL, key, false));
+  console.log(`\nNotifier probes for tenant "${hc.slug}" (test phone only):`);
+
+  const linkProbe = await probeJson("Create link", NOTIFIER_LINKS_URL, key, {
+    originalUrl: "https://example.com/diagnostic",
+  });
+
+  console.log(linkProbe);
+
+  let shortUrl = "https://go.notifierbg.com/test";
+  try {
+    const parsed = JSON.parse(linkProbe.split(" — ").slice(1).join(" — "));
+    if (typeof parsed?.shortUrl === "string") {
+      shortUrl = parsed.shortUrl;
+    }
+  } catch {
+    // keep fallback for message probe
+  }
+
+  console.log(
+    await probeJson("Send message", NOTIFIER_MESSAGES_URL, key, {
+      phone: TEST_PHONE,
+      content: `diagnostic ping — ignore ${shortUrl}`,
+    }),
+  );
 
   const { data: tenantRow } = await supabase
     .from("tenants")

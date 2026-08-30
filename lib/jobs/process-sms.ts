@@ -294,7 +294,7 @@ export async function processClaimedSmsJob(
       body: job.body,
       recipients: job.recipients,
       sender,
-      shortenLinks: undefined,
+      shortenLinks: true,
       campaign: job.id,
       jobId: job.id,
     });
