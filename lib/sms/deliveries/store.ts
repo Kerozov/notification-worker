@@ -1,4 +1,5 @@
 import { getSupabaseAdmin } from "@/lib/db/supabase";
+import { normalizePhoneToE164 } from "@/lib/validation/sms-job";
 
 export const INVALID_PHONE_ERROR = "Invalid phone number (not sent)";
 
@@ -35,7 +36,7 @@ function asDelivery(row: Record<string, unknown>): SmsDelivery {
 }
 
 function normalizePhone(value: string): string {
-  return value.trim().replace(/[\s()-]/g, "");
+  return normalizePhoneToE164(value) ?? value.trim().replace(/[\s()-]/g, "");
 }
 
 export async function recordInvalidSmsRecipients(

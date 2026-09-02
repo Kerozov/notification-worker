@@ -66,10 +66,12 @@ export function normalizePhoneToE164(raw: string): string | null {
 export function normalizePhoneNumbers(recipients: string[]): {
   valid: string[];
   invalid: string[];
+  duplicates: number;
 } {
   const seen = new Set<string>();
   const valid: string[] = [];
   const invalid: string[] = [];
+  let duplicates = 0;
 
   for (const raw of recipients) {
     const normalized = normalizePhoneToE164(raw);
@@ -82,6 +84,7 @@ export function normalizePhoneNumbers(recipients: string[]): {
     }
 
     if (seen.has(normalized)) {
+      duplicates += 1;
       continue;
     }
 
@@ -89,5 +92,24 @@ export function normalizePhoneNumbers(recipients: string[]): {
     valid.push(normalized);
   }
 
-  return { valid, invalid };
+  return { valid, invalid, duplicates };
+}
+
+/** Drop duplicate numbers (0888… and +359888… count as the same). */
+export function uniquePhones(recipients: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+
+  for (const raw of recipients) {
+    const normalized = normalizePhoneToE164(raw);
+    const key = normalized ?? raw.trim().replace(/[\s()-]/g, "");
+    if (!key || seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    out.push(normalized ?? key);
+  }
+
+  return out;
 }

@@ -3,6 +3,7 @@ import {
   prepareNotifierMessageContent,
   sendNotifierMessage,
 } from "@/lib/sms/notifier";
+import { uniquePhones } from "@/lib/validation/sms-job";
 
 export type SendSmsBatchInput = {
   apiKey: string;
@@ -26,6 +27,7 @@ export async function sendSmsBatch(
   input: SendSmsBatchInput,
 ): Promise<SendSmsBatchResult> {
   const apiKey = input.apiKey.trim().replace(/^Bearer\s+/i, "");
+  const recipients = uniquePhones(input.recipients);
 
   if (!apiKey) {
     throw new Error("Notifier API key is required for this tenant");
@@ -51,17 +53,17 @@ export async function sendSmsBatch(
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Failed to prepare SMS content";
-    failed += input.recipients.length;
+    failed += recipients.length;
     errors.push(message);
 
-    for (const recipient of input.recipients) {
+    for (const recipient of recipients) {
       deliveries.push({ recipient, error: message });
     }
 
     return { sent, failed, errors, deliveries };
   }
 
-  for (const recipient of input.recipients) {
+  for (const recipient of recipients) {
     try {
       const result = await sendNotifierMessage(
         apiKey,

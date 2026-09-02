@@ -3,6 +3,7 @@ import {
   INVALID_EMAIL_ERROR,
   isInvalidDeliveryError,
 } from "@/lib/deliveries/stats";
+import { uniqueEmails } from "@/lib/recipients/unique";
 
 export { INVALID_EMAIL_ERROR } from "@/lib/deliveries/stats";
 
@@ -325,15 +326,16 @@ export async function insertPendingDeliveries(
   tenantId: string,
   recipients: string[],
 ): Promise<void> {
-  if (recipients.length === 0) {
+  const unique = uniqueEmails(recipients);
+  if (unique.length === 0) {
     return;
   }
 
   const supabase = getSupabaseAdmin();
   const now = new Date().toISOString();
 
-  for (let i = 0; i < recipients.length; i += INSERT_CHUNK) {
-    const chunk = recipients.slice(i, i + INSERT_CHUNK).map((recipient) => ({
+  for (let i = 0; i < unique.length; i += INSERT_CHUNK) {
+    const chunk = unique.slice(i, i + INSERT_CHUNK).map((recipient) => ({
       job_id: jobId,
       tenant_id: tenantId,
       recipient: normalizeEmail(recipient),
@@ -441,12 +443,14 @@ export async function getSendableRecipients(
 ): Promise<string[]> {
   const deliveries = await getDeliveriesForJob(jobId, tenantId);
   if (deliveries.length === 0) {
-    return fallback.map(normalizeEmail);
+    return uniqueEmails(fallback);
   }
 
-  return deliveries
-    .filter((delivery) => delivery.status === "pending")
-    .map((delivery) => delivery.recipient);
+  return uniqueEmails(
+    deliveries
+      .filter((delivery) => delivery.status === "pending")
+      .map((delivery) => delivery.recipient),
+  );
 }
 
 export function summarizeDeliveries(deliveries: EmailDelivery[]) {

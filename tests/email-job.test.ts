@@ -19,7 +19,7 @@ import { isStaleProcessing } from "../lib/jobs/process";
 
 describe("normalizeRecipients", () => {
   test("trims, lowercases, and drops duplicate addresses", () => {
-    const { valid, invalid } = normalizeRecipients([
+    const { valid, invalid, duplicates } = normalizeRecipients([
       "  Ivan@Example.COM ",
       "ivan@example.com",
       "IVAN@example.com",
@@ -29,6 +29,7 @@ describe("normalizeRecipients", () => {
     ]);
     expect(valid).toEqual(["ivan@example.com", "other@example.com"]);
     expect(invalid).toEqual(["not-an-email"]);
+    expect(duplicates).toBe(2);
   });
 });
 

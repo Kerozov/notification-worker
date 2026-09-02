@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { uniqueEmails } from "@/lib/recipients/unique";
 
 const emailSchema = z.string().email();
 
@@ -153,10 +154,12 @@ const EMAIL_REGEX =
 export function normalizeRecipients(recipients: string[]): {
   valid: string[];
   invalid: string[];
+  duplicates: number;
 } {
   const seen = new Set<string>();
   const valid: string[] = [];
   const invalid: string[] = [];
+  let duplicates = 0;
 
   for (const raw of recipients) {
     const trimmed = raw.trim();
@@ -178,6 +181,7 @@ export function normalizeRecipients(recipients: string[]): {
     }
 
     if (seen.has(email)) {
+      duplicates += 1;
       continue;
     }
 
@@ -185,8 +189,10 @@ export function normalizeRecipients(recipients: string[]): {
     valid.push(email);
   }
 
-  return { valid, invalid };
+  return { valid, invalid, duplicates };
 }
+
+export { uniqueEmails };
 
 export function prepareHtml(html: string): string {
   if (html.includes("<")) {

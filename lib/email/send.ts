@@ -1,6 +1,7 @@
 import { loadZeptoAttachments } from "@/lib/email/attachments";
 import { prepareHtml, type EmailAttachment } from "@/lib/validation/email-job";
 import type { DeliverySendResult } from "@/lib/deliveries/store";
+import { uniqueEmails } from "@/lib/recipients/unique";
 
 const BATCH_SIZE = 50;
 const ZEPTOMAIL_BATCH_URL = "https://api.zeptomail.com/v1.1/email/batch";
@@ -65,14 +66,15 @@ export async function sendEmailBatch(
   const from = parseAddress(input.from);
   const replyTo = input.replyTo ? parseAddress(input.replyTo) : null;
   const attachments = await loadZeptoAttachments(input.attachments);
+  const recipients = uniqueEmails(input.recipients);
 
   const errors: string[] = [];
   const deliveries: DeliverySendResult[] = [];
   let sent = 0;
   let failed = 0;
 
-  for (let i = 0; i < input.recipients.length; i += BATCH_SIZE) {
-    const chunk = input.recipients.slice(i, i + BATCH_SIZE);
+  for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
+    const chunk = recipients.slice(i, i + BATCH_SIZE);
 
     const body = {
       from: { address: from.address, name: from.name },
