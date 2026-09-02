@@ -1,0 +1,33 @@
+---
+description: Schema changes ship via supabase/migrations — GitHub Action on push to main
+globs: supabase/**/*
+alwaysApply: true
+---
+
+# Supabase migrations (notification-worker)
+
+Production schema → GitHub Action (`.github/workflows/supabase-migrate.yml`): **push към `main`** (само при промени в `supabase/migrations/**` или workflow файла) → `supabase db push`.
+
+Чете **само flat** `supabase/migrations/NNN_име.sql`. SQL в `supabase/scripts/` **не стига до production**.
+
+Push **без** нов migration файл **не променя** базата.
+
+## Къде отива SQL
+
+| Цел | Път | Auto-deploy при push? |
+|-----|-----|----------------------|
+| Incremental migrations | `supabase/migrations/` | **Да** |
+| Bootstrap / manual | `supabase/scripts/` | **Не** |
+
+## Naming
+
+`NNN_short_name.sql` — следващ свободен номер (днес: `012+`). Една concern на файл.
+
+## При промяна по схемата
+
+1. Нов файл в `supabase/migrations/` — idempotent SQL (`if not exists`, `drop constraint if exists`).
+2. Commit + push към `main` → migration автоматично (GitHub Secrets).
+
+Не редактирай migration, която вече е минала в production — нов файл.
+
+След push: workflow **Supabase migrations** зелен, преди deploy на код с новата колона.

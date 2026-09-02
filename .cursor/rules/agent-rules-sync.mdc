@@ -1,0 +1,22 @@
+---
+description: Agent rules have one source — keep Cursor and Claude in sync
+alwaysApply: true
+---
+
+# Agent rules — един източник
+
+Проектните инструкции **не се дублират** в `CLAUDE.md` и `.cursor/rules/`.
+
+| Роля | Файл |
+|------|------|
+| **Единствен източник** | `.cursor/rules/<име>.mdc` |
+| **Claude Code** | `CLAUDE.md` → `@.cursor/rules/<име>.mdc` |
+| **Cursor** | чете `.cursor/rules/*.mdc` директно |
+
+## При добавяне или промяна
+
+1. Редактирай **само** `.cursor/rules/<име>.mdc`.
+2. В `CLAUDE.md` — **само** `@.cursor/rules/<име>.mdc`, без копиран текст.
+3. Никога migration/schema правила само в `CLAUDE.md`, `AGENTS.md` или setup SQL.
+
+Ново правило = нов `.mdc` + един `@` ред в `CLAUDE.md`.
