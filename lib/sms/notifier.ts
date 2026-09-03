@@ -6,6 +6,7 @@ export const NOTIFIER_MESSAGES_URL = `${NOTIFIER_BASE_URL}/api/v1/messages`;
 
 const MAX_RETRIES = 3;
 const RETRY_BASE_MS = 500;
+const DEFAULT_SEND_CONCURRENCY = 5;
 
 const HTTP_URL_RE = /https?:\/\/[^\s<>"']+/gi;
 const CYRILLIC_RE = /[\u0400-\u04FF]/;
@@ -300,24 +301,58 @@ export function parseNotifierMessageResponse(
   throw new Error("Notifier message response missing id");
 }
 
-/**
- * Send the same SMS content to one or many phones in a single Notifier request.
- * Uses `phones` for cohorts; falls back to singular `phone` for one recipient.
- */
-export async function sendNotifierMessages(
-  apiKey: string,
-  phones: string[],
-  content: string,
-  sendAt?: string | null,
-): Promise<NotifierMessageResponse[]> {
-  if (phones.length === 0) {
-    return [];
+export type NotifierSendOutcome = {
+  phone: string;
+  message?: NotifierMessageResponse;
+  error?: string;
+};
+
+function sendConcurrency(): number {
+  const raw = Number.parseInt(
+    process.env.NOTIFIER_SEND_CONCURRENCY?.trim() ?? "",
+    10,
+  );
+
+  if (Number.isFinite(raw) && raw > 0) {
+    return Math.min(raw, 20);
   }
 
-  const payload: Record<string, unknown> =
-    phones.length === 1
-      ? { phone: phones[0], content }
-      : { phones, content };
+  return DEFAULT_SEND_CONCURRENCY;
+}
+
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  limit: number,
+  worker: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let cursor = 0;
+
+  const runners = Array.from(
+    { length: Math.min(limit, items.length) },
+    async () => {
+      while (cursor < items.length) {
+        const index = cursor++;
+        results[index] = await worker(items[index], index);
+      }
+    },
+  );
+
+  await Promise.all(runners);
+  return results;
+}
+
+/**
+ * Send one SMS. Notifier's /messages endpoint only accepts a singular `phone`,
+ * so cohorts are fanned out one request per recipient.
+ */
+export async function sendNotifierMessage(
+  apiKey: string,
+  phone: string,
+  content: string,
+  sendAt?: string | null,
+): Promise<NotifierMessageResponse> {
+  const payload: Record<string, unknown> = { phone, content };
 
   if (sendAt) {
     payload.sendAt = sendAt;
@@ -335,31 +370,53 @@ export async function sendNotifierMessages(
     body = null;
   }
 
+  // Already accepted by Notifier — treat as sent, not as an error.
   if (response.status === 409) {
-    return phones.map((phone) => ({
+    return {
       id: "duplicate",
       to: phone,
-      status: "Pending" as const,
+      status: "Pending",
       scheduledAt: sendAt ?? null,
-    }));
+    };
   }
 
   if (!response.ok) {
     throw new Error(formatNotifierError(body, response.status));
   }
 
-  return parseNotifierMessageResponse(body, phones, sendAt);
-}
-
-export async function sendNotifierMessage(
-  apiKey: string,
-  phone: string,
-  content: string,
-  sendAt?: string | null,
-): Promise<NotifierMessageResponse> {
-  const [row] = await sendNotifierMessages(apiKey, [phone], content, sendAt);
+  const [row] = parseNotifierMessageResponse(body, [phone], sendAt);
   if (!row) {
     throw new Error("Notifier message response missing id");
   }
+
   return row;
+}
+
+/**
+ * Send the same content to every phone, one request each, with bounded
+ * concurrency. Never throws: each recipient reports its own success or error
+ * so one bad number cannot fail the whole cohort.
+ */
+export async function sendNotifierMessages(
+  apiKey: string,
+  phones: string[],
+  content: string,
+  sendAt?: string | null,
+): Promise<NotifierSendOutcome[]> {
+  if (phones.length === 0) {
+    return [];
+  }
+
+  return mapWithConcurrency(phones, sendConcurrency(), async (phone) => {
+    try {
+      const message = await sendNotifierMessage(apiKey, phone, content, sendAt);
+      return { phone, message } satisfies NotifierSendOutcome;
+    } catch (error) {
+      return {
+        phone,
+        error:
+          error instanceof Error ? error.message : "Notifier request failed",
+      } satisfies NotifierSendOutcome;
+    }
+  });
 }
