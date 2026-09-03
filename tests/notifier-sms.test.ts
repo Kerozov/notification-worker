@@ -4,6 +4,7 @@ import {
   containsEmoji,
   extractHttpUrls,
   formatNotifierError,
+  parseNotifierMessageResponse,
   smsContentLimit,
   validateSmsContent,
 } from "../lib/sms/notifier";
@@ -54,6 +55,58 @@ describe("extractHttpUrls", () => {
       "Track: https://example.com/order/1. Thanks!",
     );
     expect(urls).toEqual(["https://example.com/order/1"]);
+  });
+});
+
+describe("parseNotifierMessageResponse", () => {
+  test("maps a single message object", () => {
+    expect(
+      parseNotifierMessageResponse(
+        { id: "m1", to: "+359888111111", status: "Pending", scheduledAt: null },
+        ["+359888111111"],
+      ),
+    ).toEqual([
+      {
+        id: "m1",
+        to: "+359888111111",
+        status: "Pending",
+        scheduledAt: null,
+      },
+    ]);
+  });
+
+  test("expands one bulk id across all phones", () => {
+    const rows = parseNotifierMessageResponse(
+      { id: "batch-1", status: "Pending", scheduledAt: null },
+      ["+359888111111", "+359888222222"],
+    );
+    expect(rows).toEqual([
+      {
+        id: "batch-1",
+        to: "+359888111111",
+        status: "Pending",
+        scheduledAt: null,
+      },
+      {
+        id: "batch-1",
+        to: "+359888222222",
+        status: "Pending",
+        scheduledAt: null,
+      },
+    ]);
+  });
+
+  test("reads nested messages arrays", () => {
+    const rows = parseNotifierMessageResponse(
+      {
+        messages: [
+          { id: "a", to: "+359888111111", status: "Pending" },
+          { id: "b", to: "+359888222222", status: "Pending" },
+        ],
+      },
+      ["+359888111111", "+359888222222"],
+    );
+    expect(rows.map((row) => row.id)).toEqual(["a", "b"]);
   });
 });
 

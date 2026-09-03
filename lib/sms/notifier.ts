@@ -193,25 +193,29 @@ export async function createNotifierShortLink(
 export async function shortenUrlsInContent(
   apiKey: string,
   content: string,
-  cache: Map<string, string>,
+  cache: Map<string, string> = new Map(),
 ): Promise<string> {
   const urls = extractHttpUrls(content);
   if (urls.length === 0) {
     return content;
   }
 
-  let next = content;
-
-  for (const originalUrl of urls) {
-    let shortUrl = cache.get(originalUrl);
-
-    if (!shortUrl) {
-      const link = await createNotifierShortLink(apiKey, originalUrl);
-      shortUrl = link.shortUrl;
-      cache.set(originalUrl, shortUrl);
+  const missing = urls.filter((url) => !cache.has(url));
+  if (missing.length > 0) {
+    const created = await Promise.all(
+      missing.map((originalUrl) => createNotifierShortLink(apiKey, originalUrl)),
+    );
+    for (let i = 0; i < missing.length; i++) {
+      cache.set(missing[i], created[i].shortUrl);
     }
+  }
 
-    next = next.split(originalUrl).join(shortUrl);
+  let next = content;
+  for (const originalUrl of urls) {
+    const shortUrl = cache.get(originalUrl);
+    if (shortUrl) {
+      next = next.split(originalUrl).join(shortUrl);
+    }
   }
 
   return next;
@@ -221,7 +225,7 @@ export async function prepareNotifierMessageContent(
   apiKey: string,
   content: string,
   shortenLinks: boolean,
-  linkCache: Map<string, string>,
+  linkCache: Map<string, string> = new Map(),
 ): Promise<string> {
   const prepared = shortenLinks
     ? await shortenUrlsInContent(apiKey, content, linkCache)
@@ -235,16 +239,85 @@ export async function prepareNotifierMessageContent(
   return prepared;
 }
 
-export async function sendNotifierMessage(
+function asMessageRow(
+  row: Partial<NotifierMessageResponse>,
+  fallbackPhone: string,
+  sendAt?: string | null,
+): NotifierMessageResponse {
+  return {
+    id: typeof row.id === "string" && row.id ? row.id : "unknown",
+    to: typeof row.to === "string" && row.to ? row.to : fallbackPhone,
+    status:
+      row.status === "Delivered" || row.status === "Failed"
+        ? row.status
+        : "Pending",
+    scheduledAt:
+      typeof row.scheduledAt === "string" || row.scheduledAt === null
+        ? (row.scheduledAt ?? sendAt ?? null)
+        : (sendAt ?? null),
+  };
+}
+
+/** Normalize single-object / array / { messages|data } bulk responses. */
+export function parseNotifierMessageResponse(
+  body: unknown,
+  phones: string[],
+  sendAt?: string | null,
+): NotifierMessageResponse[] {
+  if (Array.isArray(body)) {
+    return body.map((row, index) =>
+      asMessageRow(
+        (row ?? {}) as Partial<NotifierMessageResponse>,
+        phones[index] ?? phones[0] ?? "",
+        sendAt,
+      ),
+    );
+  }
+
+  if (body && typeof body === "object") {
+    const record = body as Record<string, unknown>;
+    const nested = record.messages ?? record.data;
+    if (Array.isArray(nested)) {
+      return parseNotifierMessageResponse(nested, phones, sendAt);
+    }
+
+    if (typeof record.id === "string" && record.id) {
+      if (phones.length <= 1) {
+        return [asMessageRow(record as Partial<NotifierMessageResponse>, phones[0] ?? "", sendAt)];
+      }
+
+      // One bulk id for the whole cohort.
+      return phones.map((phone) =>
+        asMessageRow(
+          { ...(record as Partial<NotifierMessageResponse>), to: phone },
+          phone,
+          sendAt,
+        ),
+      );
+    }
+  }
+
+  throw new Error("Notifier message response missing id");
+}
+
+/**
+ * Send the same SMS content to one or many phones in a single Notifier request.
+ * Uses `phones` for cohorts; falls back to singular `phone` for one recipient.
+ */
+export async function sendNotifierMessages(
   apiKey: string,
-  phone: string,
+  phones: string[],
   content: string,
   sendAt?: string | null,
-): Promise<NotifierMessageResponse> {
-  const payload: Record<string, string> = {
-    phone,
-    content,
-  };
+): Promise<NotifierMessageResponse[]> {
+  if (phones.length === 0) {
+    return [];
+  }
+
+  const payload: Record<string, unknown> =
+    phones.length === 1
+      ? { phone: phones[0], content }
+      : { phones, content };
 
   if (sendAt) {
     payload.sendAt = sendAt;
@@ -263,22 +336,30 @@ export async function sendNotifierMessage(
   }
 
   if (response.status === 409) {
-    return {
+    return phones.map((phone) => ({
       id: "duplicate",
       to: phone,
-      status: "Pending",
+      status: "Pending" as const,
       scheduledAt: sendAt ?? null,
-    };
+    }));
   }
 
   if (!response.ok) {
     throw new Error(formatNotifierError(body, response.status));
   }
 
-  const row = body as Partial<NotifierMessageResponse>;
-  if (!row.id) {
+  return parseNotifierMessageResponse(body, phones, sendAt);
+}
+
+export async function sendNotifierMessage(
+  apiKey: string,
+  phone: string,
+  content: string,
+  sendAt?: string | null,
+): Promise<NotifierMessageResponse> {
+  const [row] = await sendNotifierMessages(apiKey, [phone], content, sendAt);
+  if (!row) {
     throw new Error("Notifier message response missing id");
   }
-
-  return row as NotifierMessageResponse;
+  return row;
 }

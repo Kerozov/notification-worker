@@ -1,7 +1,7 @@
 import type { SmsDeliverySendResult } from "@/lib/sms/deliveries/store";
 import {
   prepareNotifierMessageContent,
-  sendNotifierMessage,
+  sendNotifierMessages,
 } from "@/lib/sms/notifier";
 import { uniquePhones } from "@/lib/validation/sms-job";
 
@@ -23,6 +23,10 @@ export type SendSmsBatchResult = {
   deliveries: SmsDeliverySendResult[];
 };
 
+/**
+ * One Notifier messages request for the whole recipient list.
+ * Links are shortened once (unique URLs only) before that single send.
+ */
 export async function sendSmsBatch(
   input: SendSmsBatchInput,
 ): Promise<SendSmsBatchResult> {
@@ -33,13 +37,11 @@ export async function sendSmsBatch(
     throw new Error("Notifier API key is required for this tenant");
   }
 
-  const errors: string[] = [];
-  const deliveries: SmsDeliverySendResult[] = [];
-  let sent = 0;
-  let failed = 0;
+  if (recipients.length === 0) {
+    return { sent: 0, failed: 0, errors: [], deliveries: [] };
+  }
 
   const shortenLinks = input.shortenLinks !== false;
-  const linkCache = new Map<string, string>();
 
   let preparedContent: string;
 
@@ -48,43 +50,52 @@ export async function sendSmsBatch(
       apiKey,
       input.body,
       shortenLinks,
-      linkCache,
     );
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Failed to prepare SMS content";
-    failed += recipients.length;
-    errors.push(message);
 
-    for (const recipient of recipients) {
-      deliveries.push({ recipient, error: message });
-    }
-
-    return { sent, failed, errors, deliveries };
+    return {
+      sent: 0,
+      failed: recipients.length,
+      errors: [message],
+      deliveries: recipients.map((recipient) => ({ recipient, error: message })),
+    };
   }
 
-  for (const recipient of recipients) {
-    try {
-      const result = await sendNotifierMessage(
-        apiKey,
-        recipient,
-        preparedContent,
-        input.sendAt ?? null,
-      );
+  try {
+    const rows = await sendNotifierMessages(
+      apiKey,
+      recipients,
+      preparedContent,
+      input.sendAt ?? null,
+    );
 
-      sent += 1;
-      deliveries.push({
+    const byPhone = new Map(rows.map((row) => [row.to, row] as const));
+
+    const deliveries: SmsDeliverySendResult[] = recipients.map(
+      (recipient, index) => ({
         recipient,
-        providerMessageId: result.id,
-      });
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Notifier request failed";
-      failed += 1;
-      errors.push(`${recipient}: ${message}`);
-      deliveries.push({ recipient, error: message });
-    }
+        providerMessageId:
+          byPhone.get(recipient)?.id ?? rows[index]?.id ?? rows[0]?.id,
+      }),
+    );
+
+    return {
+      sent: deliveries.length,
+      failed: 0,
+      errors: [],
+      deliveries,
+    };
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Notifier request failed";
+
+    return {
+      sent: 0,
+      failed: recipients.length,
+      errors: [message],
+      deliveries: recipients.map((recipient) => ({ recipient, error: message })),
+    };
   }
-
-  return { sent, failed, errors, deliveries };
 }
