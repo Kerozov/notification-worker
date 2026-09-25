@@ -142,11 +142,37 @@ export const removeRecipientsBodySchema = z.object({
   emails: z.array(z.string()).min(1).max(MAX_RECIPIENTS_PER_JOB),
 });
 
+/**
+ * How many pending jobs one content update may touch. Automations are one job
+ * per person, so a rewritten drip is hundreds of these and the caller batches.
+ * Per-person HTML is ~20KB — a hundred stays well under the request body cap.
+ */
+export const MAX_CONTENT_UPDATES = 100;
+
+/**
+ * New subject + HTML for jobs that have not started sending. Nothing else:
+ * recipients, sender and `send_at` are what the job was accepted with, and a
+ * content edit must not be able to move or re-address a scheduled email.
+ */
+export const updateJobsContentBodySchema = z.object({
+  jobs: z
+    .array(
+      z.object({
+        jobId: z.string().min(1).max(80),
+        subject: z.string().min(1).max(998),
+        html: z.string().min(1),
+      }),
+    )
+    .min(1)
+    .max(MAX_CONTENT_UPDATES),
+});
+
 export type SendJobBody = z.infer<typeof sendJobBodySchema>;
 export type ScheduleJobBody = z.infer<typeof scheduleJobBodySchema>;
 export type BatchJobsBody = z.infer<typeof batchJobsBodySchema>;
 export type CancelJobsBody = z.infer<typeof cancelJobsBodySchema>;
 export type RemoveRecipientsBody = z.infer<typeof removeRecipientsBodySchema>;
+export type UpdateJobsContentBody = z.infer<typeof updateJobsContentBodySchema>;
 
 const EMAIL_REGEX =
   /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;

@@ -185,6 +185,33 @@ curl -X POST https://YOUR_WORKER/api/v1/jobs/cancel \
   -d '{"jobIds":["JOB_ID"],"idempotencyKeys":["platform-auto-AUTO_ID-user@example.com"]}'
 ```
 
+### Change the text of scheduled jobs (automation edited)
+
+Rewrites `subject` and `html` of jobs that are still `pending`. Recipients, sender and `sendAt` are not accepted — a content edit cannot move or re-address a scheduled email. Up to 100 jobs per call.
+
+The update is guarded by `status = 'pending'` in the same statement as the claim, so each job either takes the new text or has already started with the old one. Only standalone send jobs: a campaign parent and its pockets answer `not_editable`.
+
+```bash
+curl -X POST https://YOUR_WORKER/api/v1/jobs/update \
+  -H "Authorization: Bearer fb_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{"jobs":[{"jobId":"JOB_ID","subject":"New subject","html":"<p>New text</p>"}]}'
+```
+
+Response — always 200, one outcome per job:
+
+```json
+{
+  "updated": 1,
+  "results": [
+    { "jobId": "JOB_ID", "outcome": "updated" },
+    { "jobId": "OTHER", "outcome": "not_pending", "status": "sent" }
+  ]
+}
+```
+
+Outcomes: `updated`, `not_pending` (claimed / sent / failed / canceled — it goes, or went, with the old text), `not_editable` (campaign), `not_found`, `error` (that row only).
+
 ### Internal process (Trigger.dev only)
 
 When a scheduled job fires, Trigger.dev calls:
