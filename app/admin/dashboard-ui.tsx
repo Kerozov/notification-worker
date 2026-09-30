@@ -1,7 +1,12 @@
 import { Fragment, type ReactNode } from "react";
 import Link from "next/link";
 import styles from "./admin.module.css";
-import { EmailJobActions, SmsJobActions } from "./job-actions";
+import {
+  EmailJobActions,
+  SmsJobActions,
+  SmsMessageCell,
+  type SmsPreviewJob,
+} from "./job-actions";
 import {
   formatDateTime,
   formatRecipients,
@@ -427,6 +432,21 @@ export function SmsJobsTable({
               (job.status === "failed" ||
                 job.status === "partial" ||
                 job.failed_count > 0);
+            const tenantLabel =
+              tenantIdToSlug.get(job.tenant_id) ?? shortId(job.tenant_id);
+            const preview: SmsPreviewJob = {
+              id: job.id,
+              body: job.body,
+              sender: job.sender,
+              recipients: job.recipients,
+              send_at: job.send_at,
+              status: job.status,
+              tenant: tenantLabel,
+              sent_count: job.sent_count,
+              failed_count: job.failed_count,
+              error: job.error,
+              created_at: job.created_at,
+            };
 
             return (
               <Fragment key={job.id}>
@@ -439,12 +459,15 @@ export function SmsJobsTable({
                       {shortId(job.id)}
                     </td>
                   ) : null}
-                  <td className={styles.tenantCell}>
-                    {tenantIdToSlug.get(job.tenant_id) ?? shortId(job.tenant_id)}
-                  </td>
+                  <td className={styles.tenantCell}>{tenantLabel}</td>
                   <td>{job.sender ?? "—"}</td>
-                  <td className={styles.truncateWide} title={job.body}>
-                    {job.body}
+                  <td className={styles.messageCell}>
+                    <SmsMessageCell
+                      job={preview}
+                      channel={channel}
+                      returnQuery={returnQuery}
+                      showSendNow={showActions}
+                    />
                   </td>
                   <td className={styles.recipients}>
                     {formatRecipients(job.recipients)}
@@ -466,14 +489,7 @@ export function SmsJobsTable({
                   ) : null}
                   <td className={styles.actionsCell}>
                     <SmsJobActions
-                      job={{
-                        id: job.id,
-                        body: job.body,
-                        sender: job.sender,
-                        recipients: job.recipients,
-                        send_at: job.send_at,
-                        status: job.status,
-                      }}
+                      job={preview}
                       channel={channel}
                       returnQuery={returnQuery}
                       showSendNow={showActions}

@@ -27,6 +27,10 @@ export function GlobalSearch({
         return;
       }
 
+      if (document.querySelector('[aria-modal="true"]')) {
+        return;
+      }
+
       event.preventDefault();
       inputRef.current?.focus();
       inputRef.current?.select();

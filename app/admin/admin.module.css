@@ -194,6 +194,14 @@
   background: #fafafa;
 }
 
+.statLinkWarn {
+  border-color: rgba(239, 68, 68, 0.35);
+}
+
+.statLinkWarn .statValue {
+  color: #b91c1c;
+}
+
 .statLink .statValue {
   margin-top: 0;
   font-size: 1.35rem;
@@ -764,24 +772,59 @@
 .modalOverlay {
   position: fixed;
   inset: 0;
-  z-index: 50;
+  z-index: 1000;
   display: grid;
   place-items: center;
   padding: 1.25rem;
-  background: rgba(15, 23, 42, 0.45);
-  backdrop-filter: blur(4px);
+  background: rgba(15, 23, 42, 0.5);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  color-scheme: light;
+  color: #18181b;
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system,
+    sans-serif;
+  animation: modalFade 0.14s ease-out;
 }
 
 .modalPanel {
-  width: min(920px, 100%);
+  width: min(760px, 100%);
   max-height: min(88vh, 900px);
   display: flex;
   flex-direction: column;
-  border-radius: 18px;
+  border-radius: 16px;
   border: 1px solid rgba(148, 163, 184, 0.25);
   background: #fff;
-  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.22);
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.25);
   overflow: hidden;
+  animation: modalRise 0.16s ease-out;
+}
+
+.modalPanel:focus {
+  outline: none;
+}
+
+.modalPanel:has(.previewFrameWrap) {
+  width: min(960px, 100%);
+}
+
+@keyframes modalFade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes modalRise {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.985);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .modalOverlay,
+  .modalPanel {
+    animation: none;
+  }
 }
 
 .modalHeader {
@@ -794,21 +837,37 @@
   background: #f8fafc;
 }
 
+.modalHeading {
+  min-width: 0;
+}
+
 .modalTitle {
   margin: 0;
   font-size: 1rem;
   font-weight: 700;
   line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.modalSubtitle {
+  margin-top: 0.15rem;
+  font-size: 0.8rem;
+  color: #64748b;
+  overflow-wrap: anywhere;
 }
 
 .modalClose {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
   border: 0;
   background: transparent;
   color: #64748b;
-  font-size: 1.5rem;
+  font-size: 1.4rem;
   line-height: 1;
   cursor: pointer;
-  padding: 0.1rem 0.35rem;
   border-radius: 8px;
 }
 
@@ -819,7 +878,170 @@
 
 .modalBody {
   overflow: auto;
-  padding: 1rem 1.15rem 1.15rem;
+  overscroll-behavior: contain;
+  padding: 1.1rem 1.15rem 1.2rem;
+}
+
+.modalFooter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding: 0.8rem 1.15rem;
+  border-top: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+
+.modalFooter form {
+  margin: 0;
+}
+
+.modalClose:focus-visible,
+.viewButton:focus-visible,
+.sendNowButton:focus-visible,
+.cancelButton:focus-visible,
+.copyButton:focus-visible,
+.messageTrigger:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+
+.previewBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.previewBlockHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.75rem;
+}
+
+.previewBlockLabel {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #64748b;
+}
+
+.previewBlockMeta {
+  font-size: 0.78rem;
+  color: #94a3b8;
+}
+
+.previewBlockHead .copyButton {
+  margin-left: auto;
+}
+
+.previewEmpty {
+  font-size: 0.85rem;
+  color: #94a3b8;
+}
+
+.previewError {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem;
+  padding: 0.7rem 0.85rem;
+  border-radius: 10px;
+  border: 1px solid #fecaca;
+  background: #fff1f2;
+  color: #991b1b;
+  font-size: 0.85rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.copyButton {
+  border: 1px solid #e2e8f0;
+  border-radius: 7px;
+  padding: 0.25rem 0.55rem;
+  background: #fff;
+  color: #475569;
+  font-size: 0.74rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.copyButton:hover {
+  border-color: #94a3b8;
+  color: #0f172a;
+}
+
+.copyButtonDone,
+.copyButtonDone:hover {
+  border-color: rgba(34, 197, 94, 0.45);
+  background: #f0fdf4;
+  color: #15803d;
+}
+
+.smsBubbleWrap {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.3rem;
+  padding: 1rem;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+
+.smsBubbleSender {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #64748b;
+}
+
+.smsBubble {
+  max-width: min(100%, 460px);
+  margin: 0;
+  padding: 0.7rem 0.9rem;
+  border-radius: 16px 16px 16px 4px;
+  background: #e9e9eb;
+  color: #0f172a;
+  font-size: 0.92rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.resultSent {
+  color: #15803d;
+  font-weight: 600;
+}
+
+.messageCell {
+  max-width: 320px;
+}
+
+.messageTrigger {
+  display: block;
+  width: 100%;
+  max-width: 320px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #0f172a;
+  font: inherit;
+  font-weight: 500;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.messageTrigger:hover {
+  color: #2563eb;
+  text-decoration: underline;
 }
 
 .previewMeta {
@@ -896,19 +1118,6 @@
   height: 52vh;
   border: 0;
   background: #fff;
-}
-
-.smsPreviewBody {
-  margin: 0;
-  padding: 1rem;
-  border-radius: 12px;
-  border: 1px solid #e2e8f0;
-  background: #f8fafc;
-  white-space: pre-wrap;
-  word-break: break-word;
-  font-family: inherit;
-  font-size: 0.92rem;
-  line-height: 1.55;
 }
 
 .paginationSummary {
