@@ -11,6 +11,7 @@ export type TenantAdminRow = {
   default_reply_to: string | null;
   default_sms_sender: string | null;
   notifier_configured: boolean;
+  can_act_for_tenants: boolean;
   created_at: string;
 };
 
@@ -30,6 +31,8 @@ export type UpdateTenantInput = {
   defaultSmsSender?: string | null;
   notifierApiKey?: string | null;
   clearNotifierKey?: boolean;
+  /** Left out keeps what is stored. */
+  canActForTenants?: boolean;
 };
 
 const SLUG_REGEX = /^[a-z0-9](?:[a-z0-9-]{0,46}[a-z0-9])?$/;
@@ -65,7 +68,7 @@ export async function listTenantsForAdmin(): Promise<TenantAdminRow[]> {
   const full = await supabase
     .from("tenants")
     .select(
-      "id, slug, name, default_from, default_reply_to, default_sms_sender, notifier_api_key, created_at",
+      "id, slug, name, default_from, default_reply_to, default_sms_sender, notifier_api_key, can_act_for_tenants, created_at",
     )
     .order("name");
 
@@ -73,6 +76,7 @@ export async function listTenantsForAdmin(): Promise<TenantAdminRow[]> {
     full.error &&
     (full.error.code === "42703" ||
       full.error.message.includes("notifier_api_key") ||
+      full.error.message.includes("can_act_for_tenants") ||
       full.error.message.includes("default_sms_sender"))
       ? await supabase
           .from("tenants")
@@ -98,6 +102,8 @@ export async function listTenantsForAdmin(): Promise<TenantAdminRow[]> {
       "notifier_api_key" in row
         ? Boolean(row.notifier_api_key)
         : false,
+    can_act_for_tenants:
+      "can_act_for_tenants" in row ? row.can_act_for_tenants === true : false,
     created_at: row.created_at as string,
   }));
 }
@@ -172,12 +178,16 @@ export async function updateTenant(
     throw new Error("Name is required");
   }
 
-  const patch: Record<string, string | null> = {
+  const patch: Record<string, string | boolean | null> = {
     name,
     default_from: emptyToNull(input.defaultFrom),
     default_reply_to: emptyToNull(input.defaultReplyTo),
     default_sms_sender: emptyToNull(input.defaultSmsSender),
   };
+
+  if (input.canActForTenants !== undefined) {
+    patch.can_act_for_tenants = input.canActForTenants;
+  }
 
   if (input.clearNotifierKey) {
     patch.notifier_api_key = null;

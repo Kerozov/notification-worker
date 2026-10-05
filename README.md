@@ -219,6 +219,8 @@ Outcomes: `updated`, `not_pending` (claimed / sent / failed / canceled — it go
 - `GET /api/v1/sms/config` — `{ notifierConfigured, sender, maxSegments }`. Never returns the key.
 - `GET` / `DELETE /api/v1/sms/jobs/{id}` — status, or cancel a pending scheduled SMS.
 
+**Sending as another client.** A key whose client has *“Platform key: may send SMS as any other client”* ticked (admin → client, column `can_act_for_tenants`, migration 013) may add `X-Act-As-Tenant: <slug>` to every SMS route above. The job, short link, Notifier key, sender name and rate limit are then that client's. Any other key gets `403`; an unknown slug is `404`, never a fallback to the caller. `GET /api/v1/tenants` lists every client (`slug`, `name`, `smsReady`, `sender`) for such a key — the platform's admin panel assigns its users from it.
+
 Length is counted as the operator counts it (`lib/sms/segments.ts`): GSM-7 160 / 153 per part, UCS-2 70 / 67; `€ [ ] { } ~ ^ | \` take two GSM-7 positions, and one non-GSM character (Cyrillic, `„“`, `–`) makes the whole text UCS-2. `SMS_MAX_SEGMENTS` (default `1`, max `6`) is how many parts one SMS may take — raise it only once Notifier accepts long SMS, and set the same value in the platform.
 
 Links are cleaned before they are counted or shortened (`lib/sms/links.ts`): tracking params (`utm_*`, `fbclid`, `gclid`…) are dropped and Cyrillic / `~ [ ] { } | \ ^` are percent-encoded, so a link never turns the text into UCS-2.

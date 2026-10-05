@@ -1,8 +1,5 @@
 import { NextRequest } from "next/server";
-import {
-  resolveTenantFromRequest,
-  unauthorizedResponse,
-} from "@/lib/auth/tenant";
+import { resolveSmsTenant, smsTenantErrorResponse } from "@/lib/auth/sms-tenant";
 import {
   checkTenantJobRateLimit,
   rateLimitResponse,
@@ -17,11 +14,13 @@ import {
 import { sendSmsBodySchema } from "@/lib/validation/sms-job";
 
 export async function POST(request: NextRequest) {
-  const tenant = await resolveTenantFromRequest(request);
+  const resolved = await resolveSmsTenant(request);
 
-  if (!tenant) {
-    return unauthorizedResponse();
+  if (!resolved.ok) {
+    return smsTenantErrorResponse(resolved);
   }
+
+  const { tenant } = resolved;
 
   const rateLimit = await checkTenantJobRateLimit(tenant.id);
 

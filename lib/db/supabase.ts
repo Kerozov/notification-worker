@@ -15,6 +15,8 @@ export type Tenant = {
   default_reply_to: string | null;
   default_sms_sender: string | null;
   notifier_api_key: string | null;
+  /** Missing before migration 013 — read as false. */
+  can_act_for_tenants?: boolean | null;
   created_at: string;
 };
 

@@ -89,6 +89,9 @@ export async function updateClientAction(formData: FormData): Promise<void> {
       defaultSmsSender: String(formData.get("defaultSmsSender") ?? ""),
       notifierApiKey: String(formData.get("notifierApiKey") ?? ""),
       clearNotifierKey: formData.get("clearNotifierKey") === "on",
+      canActForTenants: formData.has("canActForTenantsField")
+        ? formData.get("canActForTenants") === "on"
+        : undefined,
     });
   } catch (error) {
     errorMessage =
