@@ -212,6 +212,17 @@ Response — always 200, one outcome per job:
 
 Outcomes: `updated`, `not_pending` (claimed / sent / failed / canceled — it goes, or went, with the old text), `not_editable` (campaign), `not_found`, `error` (that row only).
 
+### SMS (Notifier)
+
+- `POST /api/v1/sms/send` / `POST /api/v1/sms/schedule` — `{ body, recipients, sendAt?, shortenLinks?, idempotencyKey? }`. Phones are normalised to E.164.
+- `POST /api/v1/sms/links` — `{ url }` → `{ cleanedUrl, shortUrl }`. Makes the Notifier short link **before** sending, so the caller can count the SMS with the real link and then send with `shortenLinks: false` (the worker no longer re-shortens such a job).
+- `GET /api/v1/sms/config` — `{ notifierConfigured, sender, maxSegments }`. Never returns the key.
+- `GET` / `DELETE /api/v1/sms/jobs/{id}` — status, or cancel a pending scheduled SMS.
+
+Length is counted as the operator counts it (`lib/sms/segments.ts`): GSM-7 160 / 153 per part, UCS-2 70 / 67; `€ [ ] { } ~ ^ | \` take two GSM-7 positions, and one non-GSM character (Cyrillic, `„“`, `–`) makes the whole text UCS-2. `SMS_MAX_SEGMENTS` (default `1`, max `6`) is how many parts one SMS may take — raise it only once Notifier accepts long SMS, and set the same value in the platform.
+
+Links are cleaned before they are counted or shortened (`lib/sms/links.ts`): tracking params (`utm_*`, `fbclid`, `gclid`…) are dropped and Cyrillic / `~ [ ] { } | \ ^` are percent-encoded, so a link never turns the text into UCS-2.
+
 ### Internal process (Trigger.dev only)
 
 When a scheduled job fires, Trigger.dev calls:

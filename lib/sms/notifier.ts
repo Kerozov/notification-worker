@@ -1,3 +1,14 @@
+import {
+  cleanSmsLinksInText,
+  cleanSmsUrl,
+  findSmsUrls,
+} from "@/lib/sms/links";
+import {
+  countSmsSegments,
+  resolveSmsMaxSegments,
+  smsCapacity,
+} from "@/lib/sms/segments";
+
 const NOTIFIER_BASE_URL =
   process.env.NOTIFIER_BASE_URL?.trim() || "https://notifierbg.com";
 
@@ -8,7 +19,6 @@ const MAX_RETRIES = 3;
 const RETRY_BASE_MS = 500;
 const DEFAULT_SEND_CONCURRENCY = 5;
 
-const HTTP_URL_RE = /https?:\/\/[^\s<>"']+/gi;
 const CYRILLIC_RE = /[\u0400-\u04FF]/;
 const EMOJI_RE = /\p{Extended_Pictographic}/u;
 const LINK_PLACEHOLDER = "[link]";
@@ -88,20 +98,28 @@ export function containsEmoji(text: string): boolean {
   return EMOJI_RE.test(text);
 }
 
+/** How many SMS parts one message may take. One until the provider says more. */
+export function smsMaxSegments(): number {
+  return resolveSmsMaxSegments(process.env.SMS_MAX_SEGMENTS);
+}
+
+/**
+ * Positions one message may hold: 160 GSM-7 / 70 UCS-2 for one part. Decided by
+ * the encoding, not by "has Cyrillic" — a curly quote or an en dash in Latin
+ * text makes it UCS-2 just the same.
+ */
 export function smsContentLimit(text: string): number {
-  return containsCyrillic(text) ? 70 : 160;
+  return smsCapacity(countSmsSegments(text).encoding, smsMaxSegments());
 }
 
 export function extractHttpUrls(text: string): string[] {
-  const matches = text.match(HTTP_URL_RE) ?? [];
   const seen = new Set<string>();
   const urls: string[] = [];
 
-  for (const match of matches) {
-    const trimmed = match.replace(/[.,;:!?)]+$/, "");
-    if (!seen.has(trimmed)) {
-      seen.add(trimmed);
-      urls.push(trimmed);
+  for (const { url } of findSmsUrls(text)) {
+    if (!seen.has(url)) {
+      seen.add(url);
+      urls.push(url);
     }
   }
 
@@ -123,9 +141,12 @@ export function validateSmsContent(content: string): string | null {
     return "SMS content must not contain emoji";
   }
 
-  const limit = smsContentLimit(trimmed);
-  if (trimmed.length > limit) {
-    return `SMS content exceeds ${limit} characters (${trimmed.length})`;
+  // Counted as the operator counts: `€ [ ] { } ~ ^ | \` are two GSM-7
+  // positions, and one non-GSM character makes the whole text UCS-2.
+  const count = countSmsSegments(trimmed);
+  const limit = smsCapacity(count.encoding, smsMaxSegments());
+  if (count.units > limit) {
+    return `SMS content exceeds ${limit} characters (${count.units}, ${count.encoding})`;
   }
 
   return null;
@@ -203,8 +224,12 @@ export async function shortenUrlsInContent(
 
   const missing = urls.filter((url) => !cache.has(url));
   if (missing.length > 0) {
+    // Tracking params and Cyrillic go before the link is made: the short link
+    // then points at the clean address, and the text never carries the long one.
     const created = await Promise.all(
-      missing.map((originalUrl) => createNotifierShortLink(apiKey, originalUrl)),
+      missing.map((originalUrl) =>
+        createNotifierShortLink(apiKey, cleanSmsUrl(originalUrl)),
+      ),
     );
     for (let i = 0; i < missing.length; i++) {
       cache.set(missing[i], created[i].shortUrl);
@@ -228,9 +253,11 @@ export async function prepareNotifierMessageContent(
   shortenLinks: boolean,
   linkCache: Map<string, string> = new Map(),
 ): Promise<string> {
+  // The same cleanup the platform counted with — what was counted is sent.
+  const cleaned = cleanSmsLinksInText(content).text;
   const prepared = shortenLinks
-    ? await shortenUrlsInContent(apiKey, content, linkCache)
-    : content;
+    ? await shortenUrlsInContent(apiKey, cleaned, linkCache)
+    : cleaned;
 
   const validationError = validateSmsContent(prepared);
   if (validationError) {

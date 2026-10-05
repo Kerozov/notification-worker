@@ -207,6 +207,10 @@ CREATE INDEX IF NOT EXISTS sms_jobs_pending_send_at_idx
   ON sms_jobs (send_at)
   WHERE status = 'pending';
 
+-- 012: the caller may send links it already shortened (and counted).
+ALTER TABLE sms_jobs
+  ADD COLUMN IF NOT EXISTS shorten_links boolean NOT NULL DEFAULT true;
+
 CREATE TABLE IF NOT EXISTS sms_deliveries (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   job_id uuid NOT NULL REFERENCES sms_jobs(id) ON DELETE CASCADE,

@@ -44,10 +44,13 @@ jobs:
             first=true
             for f in supabase/migrations/[0-9]*_*.sql; do
               base=$(basename "$f" .sql)
-              case "$base" in
-                011_ci_test) continue ;;
-              esac
               version="${base%%_*}"
+              # Only 001–010 were applied by hand (SETUP_DATABASE.sql) before CI.
+              # Everything after must be left for `db push` — baselining it would
+              # record a migration as applied without running a single statement.
+              if [ "$((10#$version))" -gt 10 ]; then
+                continue
+              fi
               name="${base#*_}"
               if [ "$first" = true ]; then
                 printf "  ('%s', '%s', ARRAY[]::text[])" "$version" "$name"
