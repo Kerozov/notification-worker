@@ -86,6 +86,7 @@ export default async function EditClientPage({
             defaultReplyTo: tenant.default_reply_to,
             defaultSmsSender: tenant.default_sms_sender,
             notifierConfigured: Boolean(tenant.notifier_api_key),
+            canActForTenants: tenant.can_act_for_tenants === true,
           }}
         />
       </section>

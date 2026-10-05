@@ -43,6 +43,7 @@ export function ClientForm({
     defaultReplyTo?: string | null;
     defaultSmsSender?: string | null;
     notifierConfigured?: boolean;
+    canActForTenants?: boolean;
   };
 }) {
   const action = mode === "create" ? createClientAction : updateClientAction;
@@ -137,6 +138,20 @@ export function ClientForm({
             </label>
           ) : null}
         </label>
+
+        {mode === "edit" ? (
+          <label className={`${styles.formField} ${styles.formFieldWide}`}>
+            <input type="hidden" name="canActForTenantsField" value="1" />
+            <span className={styles.formCheckbox}>
+              <input
+                type="checkbox"
+                name="canActForTenants"
+                defaultChecked={Boolean(defaults?.canActForTenants)}
+              />
+              Platform key: may send SMS as any other client (X-Act-As-Tenant)
+            </span>
+          </label>
+        ) : null}
       </div>
 
       <div className={styles.formActions}>

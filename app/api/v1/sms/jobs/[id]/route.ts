@@ -1,8 +1,5 @@
 import { NextRequest } from "next/server";
-import {
-  resolveTenantFromRequest,
-  unauthorizedResponse,
-} from "@/lib/auth/tenant";
+import { resolveSmsTenant, smsTenantErrorResponse } from "@/lib/auth/sms-tenant";
 import { cancelPendingSmsJob, toSmsJobResponse } from "@/lib/jobs/process-sms";
 import { getSmsJobForTenant } from "@/lib/jobs/query-sms";
 import {
@@ -17,11 +14,13 @@ type RouteContext = {
 };
 
 export async function GET(request: NextRequest, context: RouteContext) {
-  const tenant = await resolveTenantFromRequest(request);
+  const resolved = await resolveSmsTenant(request);
 
-  if (!tenant) {
-    return unauthorizedResponse();
+  if (!resolved.ok) {
+    return smsTenantErrorResponse(resolved);
   }
+
+  const { tenant } = resolved;
 
   const { id } = await context.params;
   const includeRecipients =
@@ -84,11 +83,13 @@ export async function GET(request: NextRequest, context: RouteContext) {
 }
 
 export async function DELETE(request: NextRequest, context: RouteContext) {
-  const tenant = await resolveTenantFromRequest(request);
+  const resolved = await resolveSmsTenant(request);
 
-  if (!tenant) {
-    return unauthorizedResponse();
+  if (!resolved.ok) {
+    return smsTenantErrorResponse(resolved);
   }
+
+  const { tenant } = resolved;
 
   const { id } = await context.params;
 

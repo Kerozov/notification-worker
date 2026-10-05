@@ -1,9 +1,6 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import {
-  resolveTenantFromRequest,
-  unauthorizedResponse,
-} from "@/lib/auth/tenant";
+import { resolveSmsTenant, smsTenantErrorResponse } from "@/lib/auth/sms-tenant";
 import {
   checkTenantJobRateLimit,
   rateLimitResponse,
@@ -25,11 +22,13 @@ const bodySchema = z.object({
  * and sends with `shortenLinks: false` — the counted text is the sent text.
  */
 export async function POST(request: NextRequest) {
-  const tenant = await resolveTenantFromRequest(request);
+  const resolved = await resolveSmsTenant(request);
 
-  if (!tenant) {
-    return unauthorizedResponse();
+  if (!resolved.ok) {
+    return smsTenantErrorResponse(resolved);
   }
+
+  const { tenant } = resolved;
 
   const rateLimit = await checkTenantJobRateLimit(tenant.id);
 
