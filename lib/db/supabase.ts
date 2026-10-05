@@ -66,6 +66,8 @@ export type SmsJob = {
   body: string;
   recipients: string[];
   sender: string | null;
+  /** Missing on rows written before migration 012 — those were always shortened. */
+  shorten_links?: boolean | null;
   sent_count: number;
   failed_count: number;
   error: string | null;

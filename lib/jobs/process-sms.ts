@@ -31,6 +31,21 @@ export type CreateSmsJobResult = {
   invalid: string[];
 };
 
+/** `sms_jobs.shorten_links` arrived in migration 012. */
+function isMissingShortenColumn(
+  error: { code?: string; message?: string } | null,
+): boolean {
+  if (!error) {
+    return false;
+  }
+
+  return (
+    error.code === "42703" ||
+    error.code === "PGRST204" ||
+    Boolean(error.message?.includes("shorten_links"))
+  );
+}
+
 function formatInvalidError(invalid: string[]): string {
   const preview = invalid.slice(0, 5).join(", ");
   const suffix =
@@ -132,19 +147,33 @@ export async function createSmsJob(
     return { job, invalid };
   }
 
-  const { data, error } = await supabase
+  const pendingRow = {
+    tenant_id: input.tenantId,
+    idempotency_key: input.idempotencyKey ?? null,
+    status: "pending",
+    send_at: input.sendAt.toISOString(),
+    body: input.body,
+    recipients: valid,
+    sender: input.sender ?? null,
+    shorten_links: input.shortenLinks !== false,
+  };
+
+  let { data, error } = await supabase
     .from("sms_jobs")
-    .insert({
-      tenant_id: input.tenantId,
-      idempotency_key: input.idempotencyKey ?? null,
-      status: "pending",
-      send_at: input.sendAt.toISOString(),
-      body: input.body,
-      recipients: valid,
-      sender: input.sender ?? null,
-    })
+    .insert(pendingRow)
     .select("*")
     .single();
+
+  if (isMissingShortenColumn(error)) {
+    // Migration 012 not applied yet: send as before (links get shortened).
+    const legacyRow: Record<string, unknown> = { ...pendingRow };
+    delete legacyRow.shorten_links;
+    ({ data, error } = await supabase
+      .from("sms_jobs")
+      .insert(legacyRow)
+      .select("*")
+      .single());
+  }
 
   if (error) {
     if (error.code === "23505" && input.idempotencyKey) {
@@ -294,7 +323,9 @@ export async function processClaimedSmsJob(
       body: job.body,
       recipients: job.recipients,
       sender,
-      shortenLinks: true,
+      // The caller may have shortened its links already (and counted the text
+      // with them). Shortening again would replace a counted link with another.
+      shortenLinks: job.shorten_links !== false,
       campaign: job.id,
       jobId: job.id,
     });
