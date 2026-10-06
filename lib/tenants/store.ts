@@ -252,3 +252,101 @@ export async function deleteTenantBySlug(slug: string): Promise<void> {
 
   clearTenantCache();
 }
+
+export type TenantExtraKey = {
+  id: string;
+  label: string;
+  keyHint: string | null;
+  createdAt: string;
+};
+
+/**
+ * Extra keys of a client (not revoked), newest first. Before migration 014 the
+ * table is missing — that reads as "none", not as an error on the admin page.
+ */
+export async function listTenantExtraKeys(
+  tenantId: string,
+): Promise<TenantExtraKey[]> {
+  const supabase = getSupabaseAdmin();
+
+  const { data, error } = await supabase
+    .from("tenant_api_keys")
+    .select("id, label, key_hint, created_at")
+    .eq("tenant_id", tenantId)
+    .is("revoked_at", null)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    return [];
+  }
+
+  return (data ?? []).map((row) => ({
+    id: String(row.id),
+    label: String(row.label),
+    keyHint: row.key_hint ? String(row.key_hint) : null,
+    createdAt: String(row.created_at),
+  }));
+}
+
+/**
+ * A new key for the client, next to its main one. The main key keeps working —
+ * this is the key to paste into LaunchifyBG ("СМС → Връзка").
+ */
+export async function createTenantExtraKey(
+  slug: string,
+  label: string,
+): Promise<{ tenant: Tenant; apiKey: string }> {
+  const tenant = await getTenantBySlug(slug);
+
+  if (!tenant) {
+    throw new Error("Client not found");
+  }
+
+  const apiKey = generateTenantApiKey(slug);
+  const supabase = getSupabaseAdmin();
+
+  const { error } = await supabase.from("tenant_api_keys").insert({
+    tenant_id: tenant.id,
+    label: label.trim() || "LaunchifyBG",
+    key_hash: hashApiKey(apiKey),
+    key_hint: apiKey.slice(-4),
+  });
+
+  if (error) {
+    if (error.code === "42P01" || error.code === "PGRST205") {
+      throw new Error(
+        "Extra keys need migration 014_tenant_extra_api_keys — it has not reached the database yet",
+      );
+    }
+
+    throw new Error(error.message);
+  }
+
+  return { tenant, apiKey };
+}
+
+/** Revokes one extra key; the main key and the other extra keys keep working. */
+export async function revokeTenantExtraKey(
+  slug: string,
+  keyId: string,
+): Promise<void> {
+  const tenant = await getTenantBySlug(slug);
+
+  if (!tenant) {
+    throw new Error("Client not found");
+  }
+
+  const supabase = getSupabaseAdmin();
+
+  const { error } = await supabase
+    .from("tenant_api_keys")
+    .update({ revoked_at: new Date().toISOString() })
+    .eq("id", keyId)
+    .eq("tenant_id", tenant.id);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  clearTenantCache();
+}

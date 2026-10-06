@@ -2,13 +2,14 @@ import { notFound, redirect } from "next/navigation";
 import { peekRevealedApiKey } from "@/lib/auth/admin-flash";
 import { hasAdminSession } from "@/lib/auth/admin";
 import { getAdminChrome } from "@/lib/admin/chrome";
-import { getTenantBySlug } from "@/lib/tenants/store";
+import { getTenantBySlug, listTenantExtraKeys } from "@/lib/tenants/store";
 import styles from "../../admin.module.css";
 import { AdminShell } from "../../shell";
 import {
   ApiKeyReveal,
   ClientForm,
   DeleteClientForm,
+  ExtraKeysSection,
   RotateApiKeyForm,
 } from "../client-forms";
 
@@ -16,6 +17,7 @@ type SearchParams = Promise<{
   error?: string;
   saved?: string;
   reveal?: string;
+  extra?: string;
 }>;
 
 export default async function EditClientPage({
@@ -45,6 +47,7 @@ export default async function EditClientPage({
     process.env.WORKER_URL?.trim() ||
     "https://notification-worker-phi.vercel.app";
   const chrome = await getAdminChrome();
+  const extraKeys = await listTenantExtraKeys(tenant.id);
 
   return (
     <AdminShell
@@ -70,7 +73,11 @@ export default async function EditClientPage({
       ) : null}
 
       {revealedApiKey ? (
-        <ApiKeyReveal apiKey={revealedApiKey} workerUrl={workerUrl} />
+        <ApiKeyReveal
+          apiKey={revealedApiKey}
+          workerUrl={workerUrl}
+          extra={query.extra === "1"}
+        />
       ) : null}
 
       <section className={styles.section}>
@@ -99,6 +106,16 @@ export default async function EditClientPage({
           </p>
         </div>
         <RotateApiKeyForm slug={tenant.slug} />
+      </section>
+
+      <section className={styles.section}>
+        <div className={styles.sectionHeader}>
+          <h2 className={styles.sectionTitle}>Extra keys (LaunchifyBG)</h2>
+          <p className={styles.sectionHint}>
+            Same client, own key — revoke one without touching the others
+          </p>
+        </div>
+        <ExtraKeysSection slug={tenant.slug} keys={extraKeys} />
       </section>
 
       <section className={styles.section}>

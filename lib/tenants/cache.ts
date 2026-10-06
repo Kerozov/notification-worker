@@ -42,6 +42,11 @@ export function cacheTenant(tenant: Tenant): void {
   byId.set(tenant.id, { tenant, expiresAt });
 }
 
+/** An extra key resolves to its tenant (marked `auth_key_id`) under its own hash. */
+export function cacheTenantForKeyHash(apiKeyHash: string, tenant: Tenant): void {
+  byHash.set(apiKeyHash, { tenant, expiresAt: Date.now() + TTL_MS });
+}
+
 /** Drop all cached tenants. Called after any admin tenant mutation. */
 export function clearTenantCache(): void {
   byHash.clear();
