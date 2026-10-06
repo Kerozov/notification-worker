@@ -13,8 +13,12 @@ export type SmsTenantResolution =
   | { ok: true; tenant: Tenant; caller: Tenant }
   | { ok: false; status: 401 | 403 | 404; error: string };
 
+/**
+ * Only the main key of a flagged tenant. An extra key handed to one of the
+ * platform's clients must not inherit the platform's right to send as anyone.
+ */
 export function canActForTenants(tenant: Tenant): boolean {
-  return tenant.can_act_for_tenants === true;
+  return tenant.can_act_for_tenants === true && !tenant.auth_key_id;
 }
 
 /**

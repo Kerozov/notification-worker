@@ -1557,6 +1557,23 @@
   margin: 0;
 }
 
+.extraKeyList {
+  margin: 0 0 1rem;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.extraKeyRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  font-size: 0.9rem;
+}
+
 .rotateKeyHint {
   margin: 0 0 0.75rem;
   font-size: 0.85rem;

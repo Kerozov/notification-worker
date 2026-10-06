@@ -18,6 +18,11 @@ export type Tenant = {
   /** Missing before migration 013 — read as false. */
   can_act_for_tenants?: boolean | null;
   created_at: string;
+  /**
+   * Set only on the tenant a request resolved to through an extra key
+   * (`tenant_api_keys`), never stored. Such a key never acts for others.
+   */
+  auth_key_id?: string | null;
 };
 
 export type EmailJobStatus =

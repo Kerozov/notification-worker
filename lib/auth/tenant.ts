@@ -1,7 +1,11 @@
 import { createHash, timingSafeEqual } from "crypto";
 import { NextRequest } from "next/server";
 import { asTenant, getSupabaseAdmin, Tenant } from "@/lib/db/supabase";
-import { cacheTenant, getCachedTenantByHash } from "@/lib/tenants/cache";
+import {
+  cacheTenant,
+  cacheTenantForKeyHash,
+  getCachedTenantByHash,
+} from "@/lib/tenants/cache";
 
 export function hashApiKey(apiKey: string): string {
   return createHash("sha256").update(apiKey).digest("hex");
@@ -54,8 +58,12 @@ export async function resolveTenantFromRequest(
     .eq("api_key_hash", apiKeyHash)
     .maybeSingle();
 
-  if (error || !data) {
+  if (error) {
     return null;
+  }
+
+  if (!data) {
+    return resolveExtraKey(apiKeyHash);
   }
 
   const tenant = asTenant(data);
@@ -65,6 +73,51 @@ export async function resolveTenantFromRequest(
   }
 
   cacheTenant(tenant);
+  return tenant;
+}
+
+const isMissingTable = (error: { code?: string; message?: string }): boolean =>
+  error.code === "42P01" ||
+  error.code === "PGRST205" ||
+  (error.message ?? "").includes("tenant_api_keys");
+
+/**
+ * An extra key (`tenant_api_keys`) authenticates as its tenant, marked with
+ * `auth_key_id`. A revoked key is no key. Before migration 014 there are none.
+ */
+async function resolveExtraKey(apiKeyHash: string): Promise<Tenant | null> {
+  const supabase = getSupabaseAdmin();
+
+  const { data: key, error } = await supabase
+    .from("tenant_api_keys")
+    .select("id, tenant_id, key_hash")
+    .eq("key_hash", apiKeyHash)
+    .is("revoked_at", null)
+    .maybeSingle();
+
+  if (error) {
+    if (!isMissingTable(error)) {
+      console.error("[auth] extra key lookup failed:", error.message);
+    }
+    return null;
+  }
+
+  if (!key || !safeEqual(String(key.key_hash), apiKeyHash)) {
+    return null;
+  }
+
+  const { data: row } = await supabase
+    .from("tenants")
+    .select("*")
+    .eq("id", key.tenant_id)
+    .maybeSingle();
+
+  if (!row) {
+    return null;
+  }
+
+  const tenant: Tenant = { ...asTenant(row), auth_key_id: String(key.id) };
+  cacheTenantForKeyHash(apiKeyHash, tenant);
   return tenant;
 }
 

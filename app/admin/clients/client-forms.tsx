@@ -1,7 +1,9 @@
 import styles from "../admin.module.css";
 import {
   createClientAction,
+  createExtraKeyAction,
   deleteClientAction,
+  revokeExtraKeyAction,
   rotateClientApiKeyAction,
   updateClientAction,
 } from "./actions";
@@ -9,17 +11,27 @@ import {
 export function ApiKeyReveal({
   apiKey,
   workerUrl,
+  extra = false,
 }: {
   apiKey: string;
   workerUrl: string;
+  /** An extra key: goes into LaunchifyBG, not into the client's site env. */
+  extra?: boolean;
 }) {
   return (
     <section className={styles.apiKeyReveal}>
       <h2 className={styles.apiKeyRevealTitle}>Copy API key now</h2>
-      <p className={styles.apiKeyRevealHint}>
-        Shown once. Put it on the client site backend as{" "}
-        <code>NOTIFICATION_WORKER_API_KEY</code>.
-      </p>
+      {extra ? (
+        <p className={styles.apiKeyRevealHint}>
+          Shown once. The client pastes it in LaunchifyBG under{" "}
+          <code>Контакти → СМС → Връзка</code>. The main key keeps working.
+        </p>
+      ) : (
+        <p className={styles.apiKeyRevealHint}>
+          Shown once. Put it on the client site backend as{" "}
+          <code>NOTIFICATION_WORKER_API_KEY</code>.
+        </p>
+      )}
       <div className={styles.apiKeyBox}>
         <code>{apiKey}</code>
       </div>
@@ -174,6 +186,61 @@ export function RotateApiKeyForm({ slug }: { slug: string }) {
         Generate new API key
       </button>
     </form>
+  );
+}
+
+export function ExtraKeysSection({
+  slug,
+  keys,
+}: {
+  slug: string;
+  keys: { id: string; label: string; keyHint: string | null; createdAt: string }[];
+}) {
+  return (
+    <div className={styles.rotateKeyForm}>
+      {keys.length > 0 ? (
+        <ul className={styles.extraKeyList}>
+          {keys.map((key) => (
+            <li key={key.id} className={styles.extraKeyRow}>
+              <span>
+                <strong>{key.label}</strong>
+                {key.keyHint ? <> · …{key.keyHint}</> : null}
+                {" · "}
+                {new Date(key.createdAt).toLocaleDateString("en-GB")}
+              </span>
+              <form action={revokeExtraKeyAction}>
+                <input type="hidden" name="slug" value={slug} />
+                <input type="hidden" name="keyId" value={key.id} />
+                <button className={styles.cancelButton} type="submit">
+                  Revoke
+                </button>
+              </form>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className={styles.rotateKeyHint}>No extra keys yet.</p>
+      )}
+      <form className={styles.rotateKeyForm} action={createExtraKeyAction}>
+        <input type="hidden" name="slug" value={slug} />
+        <p className={styles.rotateKeyHint}>
+          A second key for this client — e.g. to paste into LaunchifyBG. The
+          main key keeps working. An extra key never sends for other clients.
+        </p>
+        <label className={styles.formField}>
+          <span className={styles.formLabel}>Label</span>
+          <input
+            className={styles.formInput}
+            name="label"
+            defaultValue="LaunchifyBG"
+            autoComplete="off"
+          />
+        </label>
+        <button className={styles.cancelButton} type="submit">
+          Create extra key
+        </button>
+      </form>
+    </div>
   );
 }
 

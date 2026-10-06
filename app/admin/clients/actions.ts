@@ -6,7 +6,9 @@ import { stashRevealedApiKey } from "@/lib/auth/admin-flash";
 import { hasAdminSession } from "@/lib/auth/admin";
 import {
   createTenant,
+  createTenantExtraKey,
   deleteTenantBySlug,
+  revokeTenantExtraKey,
   normalizeTenantSlug,
   rotateTenantApiKey,
   updateTenant,
@@ -149,6 +151,72 @@ export async function rotateClientApiKeyAction(
     saved: "1",
     reveal: "1",
   });
+}
+
+export async function createExtraKeyAction(formData: FormData): Promise<void> {
+  await requireAdmin();
+
+  const slug = String(formData.get("slug") ?? "");
+
+  if (!slug) {
+    clientsRedirect("/admin/clients", { error: "missing-client" });
+  }
+
+  let apiKey: string | null = null;
+  let errorMessage: string | null = null;
+
+  try {
+    const result = await createTenantExtraKey(
+      slug,
+      String(formData.get("label") ?? ""),
+    );
+    apiKey = result.apiKey;
+  } catch (error) {
+    errorMessage =
+      error instanceof Error ? error.message : "Failed to create key";
+  }
+
+  if (errorMessage || !apiKey) {
+    clientsRedirect(`/admin/clients/${slug}`, {
+      error: errorMessage ?? "Failed to generate key",
+    });
+  }
+
+  await stashRevealedApiKey(apiKey);
+
+  revalidatePath(`/admin/clients/${slug}`);
+  clientsRedirect(`/admin/clients/${slug}`, {
+    saved: "1",
+    reveal: "1",
+    extra: "1",
+  });
+}
+
+export async function revokeExtraKeyAction(formData: FormData): Promise<void> {
+  await requireAdmin();
+
+  const slug = String(formData.get("slug") ?? "");
+  const keyId = String(formData.get("keyId") ?? "");
+
+  if (!slug || !keyId) {
+    clientsRedirect("/admin/clients", { error: "missing-client" });
+  }
+
+  let errorMessage: string | null = null;
+
+  try {
+    await revokeTenantExtraKey(slug, keyId);
+  } catch (error) {
+    errorMessage =
+      error instanceof Error ? error.message : "Failed to revoke key";
+  }
+
+  if (errorMessage) {
+    clientsRedirect(`/admin/clients/${slug}`, { error: errorMessage });
+  }
+
+  revalidatePath(`/admin/clients/${slug}`);
+  clientsRedirect(`/admin/clients/${slug}`, { saved: "1" });
 }
 
 export async function deleteClientAction(formData: FormData): Promise<void> {
