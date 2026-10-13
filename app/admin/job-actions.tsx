@@ -19,6 +19,7 @@ import {
 } from "./actions";
 import { formatDateTime, formatRelative, StatusBadge } from "./components";
 import type { ChannelView } from "./dashboard-ui";
+import { EMAIL_PREVIEW_SANDBOX, emailPreviewSrcDoc } from "@/lib/admin/email-preview";
 
 export type EmailPreviewJob = {
   id: string;
@@ -322,8 +323,8 @@ function EmailPreviewContent({ job }: { job: EmailPreviewJob }) {
         <iframe
           className={styles.previewFrame}
           title={`Email preview: ${job.subject}`}
-          sandbox=""
-          srcDoc={job.html}
+          sandbox={EMAIL_PREVIEW_SANDBOX}
+          srcDoc={emailPreviewSrcDoc(job.html)}
         />
       </div>
     </div>

@@ -26,6 +26,7 @@ import styles from "../../admin.module.css";
 import { formatDateTime, shortId, StatusBadge } from "../../components";
 import { EmailJobActions } from "../../job-actions";
 import { AdminShell } from "../../shell";
+import { EMAIL_PREVIEW_SANDBOX, emailPreviewSrcDoc } from "@/lib/admin/email-preview";
 
 type SearchParams = Promise<{
   error?: string;
@@ -342,8 +343,8 @@ export default async function AdminJobPage({
             <iframe
               className={styles.previewFrame}
               title={`Email preview: ${job.subject}`}
-              sandbox=""
-              srcDoc={content.html}
+              sandbox={EMAIL_PREVIEW_SANDBOX}
+              srcDoc={emailPreviewSrcDoc(content.html)}
             />
           </div>
         </section>
