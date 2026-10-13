@@ -7,6 +7,9 @@ import {
 import { normalizePhoneNumbers } from "@/lib/validation/sms-job";
 import { cacheTenant, getCachedTenantById } from "@/lib/tenants/cache";
 
+/** Closer than this, the SMS goes now — no `sendAt` to Notifier. */
+const NOTIFIER_SCHEDULE_MIN_LEAD_MS = 60_000;
+
 export type ProcessSmsJobResult = {
   jobId: string;
   status: SmsJob["status"] | "partial";
@@ -244,6 +247,23 @@ async function getTenantById(tenantId: string): Promise<Tenant | null> {
   return tenant;
 }
 
+/** ISO time for Notifier's `sendAt`, or null when the SMS should go now. */
+export function notifierSendAt(
+  sendAt: string | null | undefined,
+  now = Date.now(),
+): string | null {
+  if (!sendAt) {
+    return null;
+  }
+
+  const time = new Date(sendAt).getTime();
+  if (Number.isNaN(time) || time <= now + NOTIFIER_SCHEDULE_MIN_LEAD_MS) {
+    return null;
+  }
+
+  return new Date(time).toISOString();
+}
+
 export async function claimSmsJob(jobId: string): Promise<SmsJob | null> {
   const supabase = getSupabaseAdmin();
 
@@ -328,6 +348,8 @@ export async function processClaimedSmsJob(
       shortenLinks: job.shorten_links !== false,
       campaign: job.id,
       jobId: job.id,
+      // A future send time is Notifier's to keep: it holds and sends the SMS.
+      sendAt: notifierSendAt(job.send_at),
     });
 
     await recordSmsDeliveryResults(job.id, job.tenant_id, result.deliveries);

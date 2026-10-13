@@ -214,7 +214,7 @@ Outcomes: `updated`, `not_pending` (claimed / sent / failed / canceled — it go
 
 ### SMS (Notifier)
 
-- `POST /api/v1/sms/send` / `POST /api/v1/sms/schedule` — `{ body, recipients, sendAt?, shortenLinks?, idempotencyKey? }`. Phones are normalised to E.164.
+- `POST /api/v1/sms/send` / `POST /api/v1/sms/schedule` — `{ body, recipients, sendAt?, shortenLinks?, idempotencyKey? }`. Phones are normalised to E.164. A future `sendAt` goes to Notifier as its own `sendAt`: Notifier holds the SMS, so once accepted the job is `sent` and can no longer be canceled here.
 - `POST /api/v1/sms/links` — `{ url }` → `{ cleanedUrl, shortUrl }`. Makes the Notifier short link **before** sending, so the caller can count the SMS with the real link and then send with `shortenLinks: false` (the worker no longer re-shortens such a job).
 - `GET /api/v1/sms/config` — `{ notifierConfigured, sender, maxSegments }`. Never returns the key.
 - `GET` / `DELETE /api/v1/sms/jobs/{id}` — status, or cancel a pending scheduled SMS.
@@ -239,7 +239,7 @@ curl -X POST https://YOUR_WORKER/api/internal/process/email/JOB_ID \
 Per scheduled job, the worker calls Trigger.dev with `delay: sendAt`.
 At that time Trigger hits `POST /api/internal/process/email/{id}` (or `/sms/{id}`).
 
-**Vercel env:** `TRIGGER_SECRET_KEY` is required for delayed `/schedule`, `/sms/schedule`, and `/jobs/batch`. Without it the worker returns **503** instead of pretending the job is queued.
+**Vercel env:** `TRIGGER_SECRET_KEY` is required for delayed email (`/schedule`, `/jobs/batch`); SMS scheduling does not need it. Without it the worker returns **503** instead of pretending the job is queued.
 
 **Trigger.dev project env:**
 

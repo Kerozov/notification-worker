@@ -1,6 +1,5 @@
 import { tasks } from "@trigger.dev/sdk/v3";
 import type { sendEmailJobTask } from "@/src/trigger/send-email-job";
-import type { sendSmsJobTask } from "@/src/trigger/send-sms-job";
 import { processJobById, type ProcessJobResult } from "@/lib/jobs/process";
 import { processSmsJobById } from "@/lib/jobs/process-sms";
 import { INLINE_SEND_RECIPIENT_LIMIT } from "@/lib/validation/email-job";
@@ -174,28 +173,13 @@ export async function dispatchEmailJobNow(
   }
 }
 
+/**
+ * SMS goes to Notifier now; a future `send_at` travels as Notifier's `sendAt`,
+ * so Notifier holds the message — no delayed Trigger.dev run.
+ */
 export async function dispatchScheduledSmsJob(
   jobId: string,
-  sendAt: Date,
 ): Promise<{ mode: DispatchMode }> {
-  if (isImmediateSend(sendAt)) {
-    await processSmsJobById(jobId);
-    return { mode: "immediate" };
-  }
-
-  assertCanDispatchAt(sendAt);
-
-  try {
-    await tasks.trigger<typeof sendSmsJobTask>(
-      "send-sms-job",
-      { jobId },
-      { delay: sendAt },
-    );
-  } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Trigger.dev request failed";
-    throw new DelayedDispatchError(message, "trigger_failed");
-  }
-
-  return { mode: "trigger" };
+  await processSmsJobById(jobId);
+  return { mode: "immediate" };
 }

@@ -10,11 +10,7 @@ import {
   resolveSmsSender,
   toSmsJobResponse,
 } from "@/lib/jobs/process-sms";
-import {
-  assertCanDispatchAt,
-  DelayedDispatchError,
-  dispatchScheduledSmsJob,
-} from "@/lib/trigger/schedule";
+import { dispatchScheduledSmsJob } from "@/lib/trigger/schedule";
 import { scheduleSmsBodySchema } from "@/lib/validation/sms-job";
 
 export async function POST(request: NextRequest) {
@@ -56,16 +52,6 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    assertCanDispatchAt(sendAt);
-  } catch (error) {
-    const message =
-      error instanceof Error
-        ? error.message
-        : "Delayed scheduling is not configured";
-    return Response.json({ error: message }, { status: 503 });
-  }
-
-  try {
     if (!resolveNotifierApiKey(tenant)) {
       return Response.json(
         {
@@ -93,15 +79,13 @@ export async function POST(request: NextRequest) {
 
     if (job.status === "pending") {
       try {
-        const result = await dispatchScheduledSmsJob(job.id, sendAt);
+        const result = await dispatchScheduledSmsJob(job.id);
         dispatch = result.mode;
       } catch (error) {
         const message =
-          error instanceof DelayedDispatchError
+          error instanceof Error
             ? error.message
-            : error instanceof Error
-              ? error.message
-              : "Failed to dispatch scheduled SMS";
+            : "Failed to dispatch scheduled SMS";
 
         return Response.json(
           {
