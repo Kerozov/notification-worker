@@ -19,23 +19,32 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.1",
-    "@trigger.dev/sdk": "4.4.6",
-    "next": "15",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
+    "@trigger.dev/sdk": "4.8.1",
+    "next": "^15.5.28",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
     "xlsx": "^0.18.5",
-    "zod": "^3.24.1"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
-    "@trigger.dev/build": "4.4.6",
-    "@types/node": "^20",
+    "@trigger.dev/build": "4.8.1",
+    "@types/node": "^24",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "dotenv": "^16.4.7",
     "eslint": "^9",
-    "eslint-config-next": "15",
+    "eslint-config-next": "^15.5.28",
     "postgres": "^3.4.9",
     "tsx": "^4.19.2",
     "typescript": "^5"
+  },
+  "engines": {
+    "node": "24.x"
+  },
+  "overrides": {
+    "postcss": "^8.5.31",
+    "sharp": "^0.35.5",
+    "source-map-js": "^1.2.2",
+    "ws": "^8.21.0"
   }
 }
