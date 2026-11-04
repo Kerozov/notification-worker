@@ -4,6 +4,10 @@ import {
   isInvalidDeliveryError,
 } from "@/lib/deliveries/stats";
 import { uniqueEmails } from "@/lib/recipients/unique";
+import {
+  canRecordEngagement,
+  isTerminalStatus,
+} from "@/lib/deliveries/webhook-events";
 
 export { INVALID_EMAIL_ERROR } from "@/lib/deliveries/stats";
 
@@ -35,6 +39,8 @@ export type EmailDelivery = {
   clicked_at: string | null;
   clicked_url: string | null;
   complained_at: string | null;
+  soft_bounced_at: string | null;
+  soft_bounce_reason: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -55,15 +61,6 @@ function normalizeEmail(value: string): string {
 
 const DELIVERY_PAGE = 1000;
 const INSERT_CHUNK = 500;
-
-function isTerminalStatus(status: string): boolean {
-  return (
-    status === "complained" ||
-    status === "bounced" ||
-    status === "failed" ||
-    status === "canceled"
-  );
-}
 
 async function getDeliveryRow(jobId: string, recipient: string) {
   const supabase = getSupabaseAdmin();
@@ -158,7 +155,7 @@ export async function markDeliveryOpened(
     return true;
   }
 
-  if (!existing || isTerminalStatus(existing.status)) {
+  if (!existing || !canRecordEngagement(existing.status)) {
     return false;
   }
 
@@ -171,6 +168,7 @@ export async function markDeliveryOpened(
     .update({
       status,
       opened_at: openedAt,
+      ...(existing.status === "bounced" ? { error: null } : {}),
       updated_at: new Date().toISOString(),
     })
     .eq("id", existing.id)
@@ -204,7 +202,7 @@ export async function markDeliveryClicked(
     return true;
   }
 
-  if (!existing || isTerminalStatus(existing.status)) {
+  if (!existing || !canRecordEngagement(existing.status)) {
     return false;
   }
 
@@ -216,6 +214,7 @@ export async function markDeliveryClicked(
       status: "clicked",
       clicked_at: clickedAt,
       clicked_url: clickedUrl ?? null,
+      ...(existing.status === "bounced" ? { error: null } : {}),
       updated_at: new Date().toISOString(),
     })
     .eq("id", existing.id)
@@ -290,6 +289,34 @@ export async function markDeliveryBounced(
     })
     .eq("job_id", jobId)
     .eq("recipient", normalizeEmail(recipient));
+}
+
+/**
+ * Notes a temporary refusal without ending the delivery: the status stays as
+ * it is, so a later delivery, open or click still counts. If ZeptoMail gives
+ * up, a hard bounce follows and marks the row bounced.
+ */
+export async function markDeliverySoftBounced(
+  jobId: string,
+  recipient: string,
+  reason: string,
+  bouncedAt: string,
+): Promise<void> {
+  const supabase = getSupabaseAdmin();
+
+  const { error } = await supabase
+    .from("email_deliveries")
+    .update({
+      soft_bounced_at: bouncedAt,
+      soft_bounce_reason: reason,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("job_id", jobId)
+    .eq("recipient", normalizeEmail(recipient));
+
+  if (error) {
+    console.error("markDeliverySoftBounced:", error.message);
+  }
 }
 
 export async function markDeliveryDelivered(

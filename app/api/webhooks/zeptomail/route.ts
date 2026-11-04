@@ -6,7 +6,9 @@ import {
   markDeliveryComplained,
   markDeliveryDelivered,
   markDeliveryOpened,
+  markDeliverySoftBounced,
 } from "@/lib/deliveries/store";
+import { classifyWebhookEvent } from "@/lib/deliveries/webhook-events";
 
 type ZeptoEmailAddress = {
   email_address?: { address?: string; name?: string };
@@ -60,13 +62,6 @@ type ZeptoWebhookPayload = {
   event_message?: ZeptoEventMessage[];
 };
 
-type WebhookKind =
-  | "opened"
-  | "clicked"
-  | "complained"
-  | "bounced"
-  | "delivered";
-
 function parseBody(raw: string): ZeptoWebhookPayload | null {
   try {
     return JSON.parse(raw) as ZeptoWebhookPayload;
@@ -108,32 +103,6 @@ function extractRecipients(
   return recipients;
 }
 
-function classifyEvent(eventName: string): WebhookKind | null {
-  const name = eventName.toLowerCase();
-
-  if (name.includes("feedback") || name === "fbl") {
-    return "complained";
-  }
-  if (name.includes("click")) {
-    return "clicked";
-  }
-  if (
-    name === "email_open" ||
-    name === "open" ||
-    (name.includes("open") && !name.includes("click"))
-  ) {
-    return "opened";
-  }
-  if (name.includes("bounce")) {
-    return "bounced";
-  }
-  if (name.includes("deliver")) {
-    return "delivered";
-  }
-
-  return null;
-}
-
 function bounceMessage(detail?: ZeptoEventDetail): string {
   const parts = [detail?.reason, detail?.diagnostic_message].filter(Boolean);
   return parts.length > 0 ? parts.join(": ") : "Email bounced";
@@ -160,7 +129,7 @@ export async function POST(request: NextRequest) {
       ? [payload.event_name]
       : [];
 
-  const kind = eventNames.map(classifyEvent).find(Boolean) ?? null;
+  const kind = eventNames.map(classifyWebhookEvent).find(Boolean) ?? null;
 
   if (!kind) {
     return Response.json({ ok: true, skipped: "unhandled event", eventNames });
@@ -231,6 +200,14 @@ export async function POST(request: NextRequest) {
           }
         } else if (kind === "bounced") {
           await markDeliveryBounced(jobId, recipient, bounceMessage(detail));
+          updated += 1;
+        } else if (kind === "softbounced") {
+          await markDeliverySoftBounced(
+            jobId,
+            recipient,
+            bounceMessage(detail),
+            eventTime,
+          );
           updated += 1;
         } else if (kind === "delivered") {
           await markDeliveryDelivered(jobId, recipient, eventTime);
