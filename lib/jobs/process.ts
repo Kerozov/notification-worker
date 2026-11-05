@@ -992,6 +992,8 @@ export function toJobResponse(
           clicked: 0,
           complained: 0,
           notOpened: 0,
+          pending: 0,
+          canceled: 0,
           total: invalid.length,
         }
       : undefined;

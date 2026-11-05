@@ -12,10 +12,12 @@ export type JobDeliveryStats = {
   clicked: number;
   complained: number;
   notOpened: number;
+  pending: number;
+  canceled: number;
   total: number;
 };
 
-function emptyStats(): JobDeliveryStats {
+export function emptyStats(): JobDeliveryStats {
   return {
     sent: 0,
     invalid: 0,
@@ -26,6 +28,8 @@ function emptyStats(): JobDeliveryStats {
     clicked: 0,
     complained: 0,
     notOpened: 0,
+    pending: 0,
+    canceled: 0,
     total: 0,
   };
 }
@@ -34,7 +38,7 @@ export function isInvalidDeliveryError(error: string | null | undefined): boolea
   return Boolean(error?.includes(INVALID_EMAIL_ERROR));
 }
 
-function isEngagementEligible(
+export function isEngagementEligible(
   row: {
     sent_at: string | null;
     status: string;
@@ -48,6 +52,71 @@ function isEngagementEligible(
       row.status !== "complained" &&
       !isInvalidDeliveryError(row.error),
   );
+}
+
+export type DeliveryStatsRow = {
+  status: string;
+  error: string | null;
+  sent_at: string | null;
+  delivered_at: string | null;
+  opened_at: string | null;
+  clicked_at: string | null;
+  complained_at: string | null;
+};
+
+/**
+ * Adds one email_deliveries row to a running tally. Invalid wins over bounced,
+ * bounced over failed; pending and canceled rows were never handed to the
+ * provider, so they do not count as sent.
+ */
+export function addDeliveryRow(
+  current: JobDeliveryStats,
+  row: DeliveryStatsRow,
+): JobDeliveryStats {
+  current.total += 1;
+
+  if (isInvalidDeliveryError(row.error)) {
+    current.invalid += 1;
+  } else if (row.status === "bounced") {
+    current.bounced += 1;
+  } else if (row.status === "failed") {
+    current.failed += 1;
+  } else if (row.status === "pending") {
+    current.pending += 1;
+  } else if (row.status === "canceled") {
+    current.canceled += 1;
+  } else {
+    current.sent += 1;
+  }
+
+  if (row.complained_at) {
+    current.complained += 1;
+  }
+  if (row.clicked_at) {
+    current.clicked += 1;
+  }
+  if (row.opened_at) {
+    current.opened += 1;
+  }
+  if (row.delivered_at) {
+    current.delivered += 1;
+  }
+
+  if (isEngagementEligible(row) && !row.opened_at) {
+    current.notOpened += 1;
+  }
+
+  return current;
+}
+
+export function statsFromDeliveryRows(
+  rows: DeliveryStatsRow[],
+): JobDeliveryStats {
+  const out = emptyStats();
+  for (const row of rows) {
+    addDeliveryRow(out, row);
+  }
+  return out;
 }
 
 export async function getDeliveryStatsByJobIds(
@@ -91,44 +160,15 @@ export async function getDeliveryStatsByJobIds(
   for (const row of rows) {
     const jobId = row.job_id as string;
     const current = stats.get(jobId) ?? emptyStats();
-    current.total += 1;
-
-    const invalid = isInvalidDeliveryError(row.error as string | null);
-
-    if (invalid) {
-      current.invalid += 1;
-    } else if (row.status === "bounced") {
-      current.bounced += 1;
-    } else if (row.status === "failed") {
-      current.failed += 1;
-    } else if (row.status !== "pending") {
-      current.sent += 1;
-    }
-
-    if (row.complained_at) {
-      current.complained += 1;
-    }
-    if (row.clicked_at) {
-      current.clicked += 1;
-    }
-    if (row.opened_at) {
-      current.opened += 1;
-    }
-    if (row.delivered_at) {
-      current.delivered += 1;
-    }
-
-    if (
-      isEngagementEligible({
-        sent_at: (row.sent_at as string | null) ?? null,
-        status: String(row.status ?? ""),
-        error: (row.error as string | null) ?? null,
-      }) &&
-      !row.opened_at
-    ) {
-      current.notOpened += 1;
-    }
-
+    addDeliveryRow(current, {
+      status: String(row.status ?? ""),
+      error: (row.error as string | null) ?? null,
+      sent_at: (row.sent_at as string | null) ?? null,
+      delivered_at: (row.delivered_at as string | null) ?? null,
+      opened_at: (row.opened_at as string | null) ?? null,
+      clicked_at: (row.clicked_at as string | null) ?? null,
+      complained_at: (row.complained_at as string | null) ?? null,
+    });
     stats.set(jobId, current);
   }
 
@@ -150,6 +190,8 @@ export function mergeJobDeliveryStats(
     out.clicked += part.clicked;
     out.complained += part.complained;
     out.notOpened += part.notOpened;
+    out.pending += part.pending;
+    out.canceled += part.canceled;
     out.total += part.total;
   }
   return out;
@@ -211,7 +253,8 @@ export function getJobDisplayCounts(
 } {
   if (stats && stats.total > 0) {
     return {
-      requested: stats.total,
+      // Addresses removed from a pending job are no longer asked for.
+      requested: Math.max(0, stats.total - stats.canceled),
       sent: stats.sent,
       invalid: stats.invalid,
       failed: stats.failed,

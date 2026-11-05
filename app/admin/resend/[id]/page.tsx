@@ -12,6 +12,11 @@ import {
 import { getJobById } from "@/lib/jobs/query";
 import { getAdminChrome } from "@/lib/admin/chrome";
 import {
+  isRecipientSegment,
+  resendRecipientsForSegment,
+  segmentLabel,
+} from "@/lib/admin/campaign-report";
+import {
   resendFromPaste,
   resendFromUpload,
   resendSameRecipients,
@@ -28,6 +33,7 @@ type SearchParams = Promise<{
   failed?: string;
   invalid?: string;
   status?: string;
+  segment?: string;
 }>;
 
 export default async function ResendPage({
@@ -87,6 +93,10 @@ export default async function ResendPage({
 
   const flashError = query.error ? decodeURIComponent(query.error) : null;
   const success = query.ok === "1";
+  const segment = isRecipientSegment(query.segment) ? query.segment : null;
+  const segmentRecipients = segment
+    ? resendRecipientsForSegment(deliveries, segment)
+    : [];
   const chrome = await getAdminChrome();
 
   return (
@@ -96,6 +106,9 @@ export default async function ResendPage({
       emailPending={chrome.emailPending}
       smsPending={chrome.smsPending}
     >
+      <a className={styles.backLink} href={`/admin/jobs/${job.id}`}>
+        ← Back to the campaign report
+      </a>
       <header className={styles.pageHeader}>
         <div>
           <h1 className={styles.pageTitle}>Resend campaign</h1>
@@ -185,6 +198,17 @@ export default async function ResendPage({
           ) : null}
         </section>
 
+        {segment ? (
+          <section className={styles.infoBanner}>
+            Prefilled “Paste emails” below with the{" "}
+            <strong>{segmentRecipients.length.toLocaleString("bg-BG")}</strong>{" "}
+            {segmentLabel(segment).toLowerCase()} recipient(s) from this send. Spam reports,
+            invalid and removed addresses are left out. Check the list, then press{" "}
+            <strong>Paste and send</strong>.{" "}
+            <a href={`/admin/jobs/${job.id}?tab=recipients&seg=${segment}`}>Back to the list</a>
+          </section>
+        ) : null}
+
         <section className={styles.resendCard}>
           <h2 className={styles.sectionTitle}>1. Same recipient list</h2>
           <p className={styles.sectionHint}>
@@ -229,8 +253,10 @@ export default async function ResendPage({
             <textarea
               className={styles.textarea}
               name="recipients"
-              rows={8}
+              rows={segment ? Math.min(16, Math.max(8, segmentRecipients.length)) : 8}
               placeholder={"user1@example.com\nuser2@example.com"}
+              defaultValue={segmentRecipients.join("\n")}
+              autoFocus={Boolean(segment)}
               required
             />
             <button className={styles.primaryButton} type="submit">

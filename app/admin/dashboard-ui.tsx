@@ -155,13 +155,27 @@ function deliveryLine(counts: ReturnType<typeof getJobDisplayCounts>): string {
   return `${counts.sent.toLocaleString("bg-BG")} / ${counts.requested.toLocaleString("bg-BG")} sent${extra}`;
 }
 
-function engagementLine(counts: ReturnType<typeof getJobDisplayCounts>): string {
+function rateText(part: number, whole: number): string {
+  if (whole <= 0) return "—";
+  const pct = (part / whole) * 100;
+  return `${pct > 0 && pct < 0.1 ? "<0.1" : pct.toFixed(pct === 0 || pct >= 99.95 ? 0 : 1)}%`;
+}
+
+function engagementLine(counts: ReturnType<typeof getJobDisplayCounts>): ReactNode {
   if (!counts.opened && !counts.clicked && !counts.complained) {
     return "—";
   }
-  return `${counts.opened} open · ${counts.clicked} click${
-    counts.complained ? ` · ${counts.complained} spam` : ""
-  }`;
+  return (
+    <span
+      title={`${counts.opened.toLocaleString("bg-BG")} opened · ${counts.clicked.toLocaleString("bg-BG")} clicked of ${counts.sent.toLocaleString("bg-BG")} sent`}
+    >
+      <strong>{rateText(counts.opened, counts.sent)}</strong> open ·{" "}
+      <strong>{rateText(counts.clicked, counts.sent)}</strong> click
+      {counts.complained ? (
+        <span className={styles.failedCount}> · {counts.complained} spam</span>
+      ) : null}
+    </span>
+  );
 }
 
 export function EmailJobsTable({
