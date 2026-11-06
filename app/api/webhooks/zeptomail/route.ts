@@ -7,6 +7,9 @@ import {
   markDeliveryDelivered,
   markDeliveryOpened,
 } from "@/lib/deliveries/store";
+import { bounceTypeOf } from "@/lib/deliveries/retry";
+import { scheduleRetry } from "@/lib/jobs/retry";
+import { isPacingEnabled } from "@/lib/trigger/schedule";
 
 type ZeptoEmailAddress = {
   email_address?: { address?: string; name?: string };
@@ -31,8 +34,18 @@ type ZeptoEventMessage = {
   };
   event_data?: {
     details?: ZeptoEventDetail[] | ZeptoEventDetail;
+    /** "softbounce" / "hardbounce" per ZeptoMail's docs. */
+    object?: string;
   }[];
 };
+
+/** The event name and each event_data.object, for telling soft from hard. */
+function bounceLabels(eventNames: string[], message: ZeptoEventMessage): string[] {
+  const objects = (message.event_data ?? [])
+    .map((block) => block.object)
+    .filter((value): value is string => typeof value === "string");
+  return [...eventNames, ...objects];
+}
 
 function firstDetail(
   message: ZeptoEventMessage,
@@ -168,11 +181,15 @@ export async function POST(request: NextRequest) {
 
   const messages = payload.event_message ?? [];
   const now = new Date().toISOString();
+  let softBounced = 0;
   let updated = 0;
   let skippedBots = 0;
   let notFound = 0;
   let skippedNoJobId = 0;
   let skippedNoRecipients = 0;
+  let requeued = 0;
+  /** Send job id → earliest time one of its addresses is due again. */
+  const retries = new Map<string, Date>();
 
   try {
     for (const message of messages) {
@@ -184,6 +201,7 @@ export async function POST(request: NextRequest) {
       }
 
       const detail = firstDetail(message);
+      const bounceType = bounceTypeOf(bounceLabels(eventNames, message));
       const eventTime =
         detail?.time ?? message.email_info?.processed_time ?? now;
       const recipients = extractRecipients(message, detail);
@@ -230,13 +248,33 @@ export async function POST(request: NextRequest) {
             notFound += 1;
           }
         } else if (kind === "bounced") {
-          await markDeliveryBounced(jobId, recipient, bounceMessage(detail));
-          updated += 1;
+          const result = await markDeliveryBounced(
+            jobId,
+            recipient,
+            bounceMessage(detail),
+            bounceType,
+            isPacingEnabled(),
+          );
+          if (result.outcome === "requeued") {
+            requeued += 1;
+            const current = retries.get(jobId);
+            if (!current || result.retryAt < current) {
+              retries.set(jobId, result.retryAt);
+            }
+          }
+          if (result.outcome !== "ignored") {
+            updated += 1;
+            if (bounceType === "soft") softBounced += 1;
+          }
         } else if (kind === "delivered") {
           await markDeliveryDelivered(jobId, recipient, eventTime);
           updated += 1;
         }
       }
+    }
+
+    for (const [jobId, at] of retries) {
+      await scheduleRetry(jobId, at);
     }
   } catch (error) {
     const message =
@@ -248,6 +286,7 @@ export async function POST(request: NextRequest) {
     ok: true,
     kind,
     eventNames,
+    ...(kind === "bounced" ? { softBounced, requeued } : {}),
     updated,
     skippedBots,
     notFound,

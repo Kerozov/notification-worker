@@ -7,14 +7,25 @@ import {
 } from "@/lib/db/supabase";
 import { sendEmailBatch } from "@/lib/email/send";
 import {
-  getSendableRecipients,
+  nextWindowStart,
+  pickWithinQuota,
+  reserveDomainQuota,
+} from "@/lib/email/throttle";
+import {
+  getSendQueue,
   insertPendingDeliveries,
   markDeliveriesCanceled,
   recordDeliveryResults,
   recordInvalidRecipients,
+  requeueDeliveries,
   summarizeDeliveries,
   getDeliveriesForJob,
+  type EmailDelivery,
 } from "@/lib/deliveries/store";
+import {
+  isTemporaryDeliveryError,
+  MAX_DELIVERY_RETRIES,
+} from "@/lib/deliveries/retry";
 import { resolveDisplayStatus } from "@/lib/deliveries/stats";
 import { getJobById } from "@/lib/jobs/query";
 import {
@@ -373,7 +384,8 @@ export async function createEmailJob(
             : await listChildJobs(existing.id);
           return { job: existing, invalid: [], children };
         }
-        if (existing.status !== "pending") {
+        // sent_count > 0: pending again between paced steps, already sending.
+        if (existing.status !== "pending" || existing.sent_count > 0) {
           return { job: existing, invalid: [], children: [] };
         }
 
@@ -392,6 +404,7 @@ export async function createEmailJob(
           })
           .eq("id", existing.id)
           .eq("status", "pending")
+          .eq("sent_count", 0)
           .select("*")
           .maybeSingle();
 
@@ -410,6 +423,7 @@ export async function createEmailJob(
             })
             .eq("id", existing.id)
             .eq("status", "pending")
+            .eq("sent_count", 0)
             .select("*")
             .maybeSingle());
         }
@@ -418,7 +432,13 @@ export async function createEmailJob(
           throw new Error(updateError.message);
         }
 
-        const job = updated ? asEmailJob(updated) : existing;
+        // Claimed (or started sending) between the read and the update: it
+        // keeps the list it started with.
+        if (!updated) {
+          return { job: existing, invalid: [], children: [] };
+        }
+
+        const job = asEmailJob(updated);
         await syncJobDeliveries(job, valid, existing.recipients);
         return {
           job: await attachInvalidRecipients(job, invalid),
@@ -498,6 +518,31 @@ async function getTenantById(tenantId: string): Promise<Tenant | null> {
   return tenant;
 }
 
+/**
+ * What a send job still has to do after a step: addresses due now (held back
+ * by the per-domain quota) go in the next minute; otherwise the earliest
+ * queued retry decides.
+ */
+export function nextStepFor(
+  deliveries: Array<Pick<EmailDelivery, "status" | "next_attempt_at">>,
+  now = Date.now(),
+): { dueNow: number; at: Date | null } {
+  let dueNow = 0;
+  let later: Date | null = null;
+
+  for (const row of deliveries) {
+    if (row.status !== "pending") continue;
+    const at = row.next_attempt_at ? new Date(row.next_attempt_at) : null;
+    if (at && at.getTime() > now) {
+      if (!later || at < later) later = at;
+    } else {
+      dueNow += 1;
+    }
+  }
+
+  return { dueNow, at: dueNow > 0 ? nextWindowStart(now) : later };
+}
+
 export async function processClaimedJob(
   job: EmailJob,
 ): Promise<ProcessJobResult> {
@@ -514,8 +559,21 @@ export async function processClaimedJob(
   const tenant = await getTenantById(job.tenant_id);
   const sendContent = await resolveSendContent(job);
 
-  async function touchParent(): Promise<void> {
+  /**
+   * Refreshes the campaign row. `pocketDone`: this pocket has nothing left to
+   * send right now (only later retries, if anything), so the next pocket of
+   * the campaign may start.
+   */
+  async function touchParent(pocketDone = true): Promise<void> {
     if (!job.parent_id) return;
+    if (pocketDone) {
+      try {
+        const { startNextPocket } = await import("@/lib/trigger/schedule");
+        await startNextPocket(job.parent_id, job.id);
+      } catch (error) {
+        console.error("startNextPocket:", error);
+      }
+    }
     try {
       const parent = await getJobById(job.parent_id);
       if (
@@ -583,14 +641,32 @@ export async function processClaimedJob(
     return failClaimed("Email HTML is missing");
   }
 
-  try {
-    const recipients = await getSendableRecipients(
-      job.id,
-      job.tenant_id,
-      job.recipients,
-    );
+  const schedule = await import("@/lib/trigger/schedule");
+  const pacing = schedule.isPacingEnabled();
 
-    if (recipients.length === 0) {
+  try {
+    const queue = await getSendQueue(job.id, job.tenant_id, job.recipients);
+    let recipients = queue.due;
+
+    // Held-back addresses live only as pending rows. A job without rows gets
+    // them first; if that fails, it goes out unpaced rather than half-sent.
+    let canHoldBack = queue.hasRows;
+    if (pacing && !queue.hasRows && recipients.length > 0) {
+      try {
+        await insertPendingDeliveries(job.id, job.tenant_id, recipients);
+        canHoldBack = true;
+      } catch (error) {
+        console.error("insertPendingDeliveries before paced send:", error);
+      }
+    }
+
+    // Only what this minute's per-domain quota allows; the rest waits.
+    if (pacing && canHoldBack && recipients.length > 0) {
+      const granted = await reserveDomainQuota(recipients);
+      recipients = pickWithinQuota(recipients, granted).send;
+    }
+
+    if (recipients.length === 0 && queue.due.length === 0 && !queue.nextDueAt) {
       const deliveries = await getDeliveriesForJob(job.id, job.tenant_id);
       const summary = summarizeDeliveries(deliveries);
       const dbStatus = summary.sent === 0 ? "failed" : "sent";
@@ -614,35 +690,75 @@ export async function processClaimedJob(
       };
     }
 
-    const result = await sendEmailBatch({
-      from,
-      subject: sendContent.subject,
-      html: sendContent.html,
-      recipients,
-      replyTo,
-      clientReference: job.id,
-      attachments: sendContent.attachments,
-      merge: job.merge,
-      onChunk: async (chunkDeliveries) => {
-        await recordDeliveryResults(job.id, job.tenant_id, chunkDeliveries);
-        await supabase
-          .from("email_jobs")
-          .update({ updated_at: new Date().toISOString() })
-          .eq("id", job.id);
-      },
-    });
+    const result =
+      recipients.length > 0
+        ? await sendEmailBatch({
+            from,
+            subject: sendContent.subject,
+            html: sendContent.html,
+            recipients,
+            replyTo,
+            clientReference: job.id,
+            attachments: sendContent.attachments,
+            merge: job.merge,
+            onChunk: async (chunkDeliveries) => {
+              await recordDeliveryResults(job.id, job.tenant_id, chunkDeliveries);
+              await supabase
+                .from("email_jobs")
+                .update({ updated_at: new Date().toISOString() })
+                .eq("id", job.id);
+            },
+          })
+        : { sent: 0, failed: 0, errors: [] as string[], deliveries: [] };
 
-    const deliveries = await getDeliveriesForJob(job.id, job.tenant_id);
+    let deliveries = await getDeliveriesForJob(job.id, job.tenant_id);
+
+    // ZeptoMail's API was down or busy: those addresses never left, try later.
+    if (pacing) {
+      const failedNow = new Set(
+        result.deliveries
+          .filter((d) => d.error && isTemporaryDeliveryError(d.error))
+          .map((d) => d.recipient.trim().toLowerCase()),
+      );
+      const retryable = deliveries.filter(
+        (row) =>
+          failedNow.has(row.recipient) &&
+          row.status === "failed" &&
+          (row.retry_count ?? 0) < MAX_DELIVERY_RETRIES,
+      );
+      if (retryable.length > 0) {
+        const queued = await requeueDeliveries(job.id, retryable, { kind: "send" });
+        if (queued) {
+          deliveries = await getDeliveriesForJob(job.id, job.tenant_id);
+        }
+      }
+    }
+
     const summary = summarizeDeliveries(deliveries);
     const remaining = deliveries.filter((row) => row.status === "pending").length;
+    const next = nextStepFor(deliveries);
+    // Invalid addresses have their own rows (summary.invalid). job.failed_count
+    // is only a stand-in for jobs without such rows; after an earlier paced
+    // step it also holds that step's failures, so it must not win then.
     const priorInvalid =
-      job.failed_count > 0 && job.error?.includes("Invalid addresses")
-        ? job.failed_count
-        : summary.invalid;
+      summary.invalid > 0
+        ? summary.invalid
+        : job.failed_count > 0 &&
+            job.sent_count === 0 &&
+            job.error?.includes("Invalid addresses")
+          ? job.failed_count
+          : 0;
     const sendFailed = summary.failed + summary.bounced;
     const totalFailed = Math.max(priorInvalid, summary.invalid) + sendFailed;
+    // Pending again (not "processing") so the scheduled next step can claim it.
     const dbStatus =
-      remaining > 0 ? "processing" : summary.sent === 0 ? "failed" : "sent";
+      remaining > 0
+        ? pacing
+          ? "pending"
+          : "processing"
+        : summary.sent === 0
+          ? "failed"
+          : "sent";
     const status =
       remaining > 0
         ? "processing"
@@ -653,9 +769,13 @@ export async function processClaimedJob(
             : "sent";
     const sendErrors =
       result.errors.length > 0 ? result.errors.join("; ") : null;
+    // Keep only the "Invalid addresses" part of the old error, so the send
+    // errors of earlier paced steps do not pile up in it.
     const invalidNote =
-      priorInvalid > 0 && job.error?.includes("Invalid addresses")
-        ? job.error
+      priorInvalid > 0
+        ? (job.error
+            ?.split(" | ")
+            .find((part) => part.startsWith("Invalid addresses")) ?? null)
         : null;
     const errorMessage = [invalidNote, sendErrors].filter(Boolean).join(" | ") || null;
 
@@ -671,7 +791,11 @@ export async function processClaimedJob(
       })
       .eq("id", job.id);
 
-    await touchParent();
+    if (remaining > 0 && pacing && next.at) {
+      await schedule.scheduleEmailJobStep(job.id, next.at);
+    }
+
+    await touchParent(next.dueNow === 0);
     return {
       jobId: job.id,
       status,
@@ -709,7 +833,15 @@ export async function processClaimedJob(
       })
       .eq("id", job.id);
 
-    await touchParent();
+    // Without a run to come back, the leftovers would wait for a manual send.
+    if (remaining > 0 && pacing) {
+      await schedule.scheduleEmailJobStep(
+        job.id,
+        new Date(Date.now() + 2 * 60_000),
+      );
+    }
+
+    await touchParent(remaining === 0);
     return {
       jobId: job.id,
       status:
@@ -769,7 +901,36 @@ export async function processJobById(
   }
 
   const existing = await getJobById(jobId);
+
+  // A retry run for a job that had finished: a bounce queued addresses again
+  // just as the job was closing. ("failed" is left alone: a job that failed
+  // before sending, e.g. no From address, keeps its untouched pending rows.)
+  if (existing && existing.kind !== "campaign" && existing.status === "sent") {
+    const queue = await getSendQueue(existing.id, existing.tenant_id, []);
+    if (queue.due.length > 0 || queue.nextDueAt) {
+      const { reopenSendJob } = await import("@/lib/jobs/retry");
+      if (await reopenSendJob(existing.id)) {
+        const reclaimed = await claimJob(jobId);
+        if (reclaimed) return processClaimedJob(reclaimed);
+      }
+    }
+  }
+
   if (!existing || existing.status !== "processing") {
+    // A pocket canceled before its run must not stall the pockets after it.
+    if (
+      existing?.parent_id &&
+      (existing.status === "canceled" ||
+        existing.status === "sent" ||
+        existing.status === "failed")
+    ) {
+      try {
+        const { startNextPocket } = await import("@/lib/trigger/schedule");
+        await startNextPocket(existing.parent_id, existing.id);
+      } catch (error) {
+        console.error("startNextPocket:", error);
+      }
+    }
     return null;
   }
 

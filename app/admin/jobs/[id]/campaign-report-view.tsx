@@ -24,8 +24,10 @@ import {
   cancelScheduledEmailJob,
   removeJobRecipient,
   resendFailedFromJob,
+  retryTemporaryBounces,
   sendScheduledEmailJob,
 } from "../../actions";
+import { canRetryDelivery } from "@/lib/deliveries/retry";
 import adminStyles from "../../admin.module.css";
 import { shortId, StatusBadge } from "../../components";
 import { CopyButton, EmailJobActions } from "../../job-actions";
@@ -54,6 +56,7 @@ export type ReportSearchParams = {
   canceled?: string;
   sent?: string;
   removed?: string;
+  retried?: string;
   tab?: string;
   seg?: string;
   rq?: string;
@@ -139,6 +142,7 @@ export function CampaignReportView({
   const failedCount = deliveries.filter(
     (row) => (row.status === "failed" || row.status === "bounced") && !row.complained_at,
   ).length;
+  const retryableCount = deliveries.filter(canRetryDelivery).length;
   const canCancel =
     job.status === "pending" || (isCampaign && job.status === "processing");
   const pendingChildren = children.filter((child) => child.status === "pending").length;
@@ -239,6 +243,18 @@ export function CampaignReportView({
                 </ConfirmSubmit>
               </form>
             ) : null}
+            {retryableCount > 0 ? (
+              <form action={retryTemporaryBounces}>
+                <input type="hidden" name="jobId" value={job.id} />
+                <input type="hidden" name="returnTo" value={currentHref} />
+                <ConfirmSubmit
+                  className={styles.btnPrimary}
+                  message={`Send again to ${retryableCount} address(es) that failed for a temporary reason (server not reachable, busy, timeout)? They go out slowly, a few dozen per minute per mail provider. Typos and missing mailboxes are skipped.`}
+                >
+                  Retry temporary bounces ({retryableCount.toLocaleString("bg-BG")})
+                </ConfirmSubmit>
+              </form>
+            ) : null}
             {failedCount > 0 ? (
               <form action={resendFailedFromJob}>
                 <input type="hidden" name="jobId" value={job.id} />
@@ -275,6 +291,12 @@ export function CampaignReportView({
         {flashError ? <section className={adminStyles.errorBanner}>{flashError}</section> : null}
         {query.canceled ? <section className={adminStyles.successBanner}>Canceled.</section> : null}
         {query.sent ? <section className={adminStyles.successBanner}>Queued to send.</section> : null}
+        {query.retried ? (
+          <section className={adminStyles.successBanner}>
+            {query.retried} address(es) are back in the queue. They go out over the next few
+            minutes, paced per mail provider; watch the Waiting to send segment empty out.
+          </section>
+        ) : null}
         {query.removed ? (
           <section className={adminStyles.successBanner}>
             Removed {query.removed} address(es).

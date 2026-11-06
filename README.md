@@ -284,6 +284,19 @@ push to `main`, CI applies it automatically.
 
 Details: [`supabase/SETUP.md`](supabase/SETUP.md).
 
+## Pacing and retries
+
+A burst of ~250 abv.bg addresses came back as `bad-domain: Host not reachable` — abv.bg refuses ZeptoMail when too much arrives at once. With `TRIGGER_SECRET_KEY` set, the worker therefore:
+
+- **Sends per domain per minute** (`lib/email/throttle.ts`, migration `017`): every send step asks the database for quota per mail domain (`gbg.bg` counts as `abv.bg`, same servers). Defaults per minute: `abv.bg` 40, `mail.bg` 60, `dir.bg` 60, any other domain 600. Override with `EMAIL_DOMAIN_LIMITS="abv.bg=40,mail.bg=60,*=600"`. What does not fit stays *Waiting to send* and goes out in the next minute (a delayed Trigger.dev run of the same job).
+- **Sends pockets one after another**: a campaign starts its first pocket; each pocket starts the next when it has nothing left to send right now.
+- **Retries temporary failures** (`lib/deliveries/retry.ts`, migration `016`): a hard bounce whose cause is temporary (host not reachable, connection refused, greylisted, 4xx…) puts the address back in the queue after 15 min, 1 h, 4 h (3 tries). A failed ZeptoMail API call is retried after 1, 5, 20 min. Typos (`NXDOMAIN`), unknown mailboxes and spam blocks are never retried.
+- **Soft bounces** are recorded as `Soft bounce: …`; ZeptoMail keeps trying, and a later open, click or delivered event marks the address as delivered again.
+
+Admin → campaign → **Retry temporary bounces (N)** puts the temporary failures of an older send back in the same job's queue, paced the same way.
+
+Without `TRIGGER_SECRET_KEY` nothing is paced: there is no way to come back later, so everything goes out at once as before.
+
 ## Limits (v1)
 
 - Max 50,000 recipients per HTTP request. The worker keeps that list on a parent campaign job and sends in pockets of 250 (ZeptoMail is batched 50/request).

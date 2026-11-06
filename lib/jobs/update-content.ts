@@ -13,8 +13,10 @@ import { isMissingCampaignColumns } from "@/lib/jobs/campaign";
  *
  * The update is guarded by `status = 'pending'` in the same statement: the
  * claim flips the row to `processing` atomically, so a job either takes the new
- * text or has already started with the old one. There is no third state, and
- * nothing in the sending path is touched.
+ * text or has already started with the old one. A paced job goes back to
+ * `pending` between steps (and for a retry) with mail already out; the guard
+ * `sent_count = 0` keeps such a job on the text its first people got.
+ * Nothing in the sending path is touched.
  *
  * Only standalone send jobs. A campaign parent's HTML is read by every pocket
  * at its own send time — rewriting it mid-campaign would split one broadcast
@@ -47,13 +49,20 @@ export type ContentUpdateOutcome =
  */
 export function contentUpdateRefusal(
   jobId: string,
-  job: Pick<EmailJob, "status" | "kind" | "parent_id"> | null,
+  job:
+    | (Pick<EmailJob, "status" | "kind" | "parent_id"> & { sent_count?: number })
+    | null,
 ): ContentUpdateOutcome {
   if (!job) return { jobId, outcome: "not_found" };
   if (job.kind === "campaign" || job.parent_id) {
     return { jobId, outcome: "not_editable", status: job.status };
   }
-  return { jobId, outcome: "not_pending", status: job.status };
+  // Pending again between paced steps: it is sending, not waiting.
+  const status =
+    job.status === "pending" && (job.sent_count ?? 0) > 0
+      ? "processing"
+      : job.status;
+  return { jobId, outcome: "not_pending", status };
 }
 
 async function guardedUpdate(
@@ -73,6 +82,7 @@ async function guardedUpdate(
     .eq("id", update.jobId)
     .eq("tenant_id", tenantId)
     .eq("status", "pending")
+    .eq("sent_count", 0)
     .eq("kind", "send")
     .is("parent_id", null)
     .select("id")
@@ -85,6 +95,7 @@ async function guardedUpdate(
       .eq("id", update.jobId)
       .eq("tenant_id", tenantId)
       .eq("status", "pending")
+      .eq("sent_count", 0)
       .select("id")
       .maybeSingle());
   }

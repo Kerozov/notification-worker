@@ -397,6 +397,39 @@ export async function removeJobRecipient(formData: FormData): Promise<void> {
   }
 }
 
+/**
+ * Puts the temporary bounces of this job (abv.bg "Host not reachable" and the
+ * like) back in the same job's queue; they go out paced per domain.
+ */
+export async function retryTemporaryBounces(formData: FormData): Promise<void> {
+  await requireAdmin();
+
+  const jobId = String(formData.get("jobId") ?? "");
+  if (!jobId) {
+    redirect("/admin?error=missing-job");
+  }
+
+  let queued = 0;
+  let errorMessage: string | null = null;
+
+  try {
+    const { retryTemporaryFailures } = await import("@/lib/jobs/retry");
+    const result = await retryTemporaryFailures(jobId);
+    queued = result.queued;
+    if (queued === 0) {
+      errorMessage = "No temporary bounces to retry";
+    }
+  } catch (error) {
+    errorMessage = error instanceof Error ? error.message : "Retry failed";
+  }
+
+  revalidatePath(`/admin/jobs/${jobId}`);
+  adminRedirectFromForm(
+    formData,
+    errorMessage ? { error: errorMessage } : { retried: String(queued) },
+  );
+}
+
 export async function resendFailedFromJob(formData: FormData): Promise<void> {
   await requireAdmin();
 

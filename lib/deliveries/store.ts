@@ -1,8 +1,15 @@
 import { getSupabaseAdmin } from "@/lib/db/supabase";
 import {
   INVALID_EMAIL_ERROR,
+  isEngagementEligible,
   isInvalidDeliveryError,
 } from "@/lib/deliveries/stats";
+import {
+  isTemporaryDeliveryError,
+  MAX_DELIVERY_RETRIES,
+  nextRetryAt,
+  retryNote,
+} from "@/lib/deliveries/retry";
 import { uniqueEmails } from "@/lib/recipients/unique";
 
 export { INVALID_EMAIL_ERROR } from "@/lib/deliveries/stats";
@@ -37,6 +44,10 @@ export type EmailDelivery = {
   complained_at: string | null;
   created_at: string;
   updated_at: string;
+  /** Migration 016; undefined on databases that do not have it yet. */
+  bounce_type?: "soft" | "hard" | null;
+  retry_count?: number;
+  next_attempt_at?: string | null;
 };
 
 export type DeliverySendResult = {
@@ -56,24 +67,46 @@ function normalizeEmail(value: string): string {
 const DELIVERY_PAGE = 1000;
 const INSERT_CHUNK = 500;
 
-function isTerminalStatus(status: string): boolean {
-  return (
-    status === "complained" ||
-    status === "bounced" ||
-    status === "failed" ||
-    status === "canceled"
-  );
-}
-
 async function getDeliveryRow(jobId: string, recipient: string) {
   const supabase = getSupabaseAdmin();
 
-  return supabase
+  // `*` so the read works with or without the retry columns of migration 016.
+  const result = await supabase
     .from("email_deliveries")
-    .select("id, status, opened_at, clicked_at, complained_at")
+    .select("*")
     .eq("job_id", jobId)
     .eq("recipient", normalizeEmail(recipient))
     .maybeSingle();
+
+  return {
+    data: result.data ? asDelivery(result.data) : null,
+    error: result.error,
+  };
+}
+
+function hasRetryColumns(row: EmailDelivery): boolean {
+  return "next_attempt_at" in row;
+}
+
+/**
+ * An open, click or "delivered" event is proof the mail arrived. It counts for
+ * a row that was handed to ZeptoMail, even one an earlier bounce marked as
+ * bounced or put back in the queue; never for a row that was not sent at all.
+ */
+function canTakeDeliveryProof(row: EmailDelivery): boolean {
+  if (row.status === "failed" || row.status === "canceled") return false;
+  if (row.status === "complained") return false;
+  if (row.status === "pending") return row.sent_at !== null;
+  return true;
+}
+
+/** Fields that undo a bounce or a queued retry once delivery is proven. */
+function clearBounceFields(row: EmailDelivery): Record<string, unknown> {
+  if (row.status !== "bounced" && row.status !== "pending") return {};
+  return {
+    error: null,
+    ...(hasRetryColumns(row) ? { next_attempt_at: null, bounce_type: null } : {}),
+  };
 }
 
 export async function recordInvalidRecipients(
@@ -158,7 +191,7 @@ export async function markDeliveryOpened(
     return true;
   }
 
-  if (!existing || isTerminalStatus(existing.status)) {
+  if (!existing || !canTakeDeliveryProof(existing)) {
     return false;
   }
 
@@ -171,6 +204,7 @@ export async function markDeliveryOpened(
     .update({
       status,
       opened_at: openedAt,
+      ...clearBounceFields(existing),
       updated_at: new Date().toISOString(),
     })
     .eq("id", existing.id)
@@ -204,7 +238,7 @@ export async function markDeliveryClicked(
     return true;
   }
 
-  if (!existing || isTerminalStatus(existing.status)) {
+  if (!existing || !canTakeDeliveryProof(existing)) {
     return false;
   }
 
@@ -216,6 +250,7 @@ export async function markDeliveryClicked(
       status: "clicked",
       clicked_at: clickedAt,
       clicked_url: clickedUrl ?? null,
+      ...clearBounceFields(existing),
       updated_at: new Date().toISOString(),
     })
     .eq("id", existing.id)
@@ -274,22 +309,104 @@ export async function markDeliveryComplained(
   return Boolean(data);
 }
 
+export type BounceOutcome =
+  | { outcome: "ignored" }
+  | { outcome: "bounced" }
+  | { outcome: "requeued"; retryAt: Date };
+
+/**
+ * A hard bounce with a temporary cause (abv.bg "Host not reachable") puts the
+ * address back in the queue, up to MAX_DELIVERY_RETRIES times. Anything else
+ * marks it bounced. A soft bounce is recorded but not final: ZeptoMail keeps
+ * trying, and a later open or "delivered" event clears it.
+ */
 export async function markDeliveryBounced(
   jobId: string,
   recipient: string,
   error: string,
-): Promise<void> {
-  const supabase = getSupabaseAdmin();
+  bounceType: "soft" | "hard" = "hard",
+  /** False without Trigger.dev: nothing would come back to send the retry. */
+  allowRetry = true,
+): Promise<BounceOutcome> {
+  const { data: existing, error: readError } = await getDeliveryRow(
+    jobId,
+    recipient,
+  );
 
-  await supabase
+  if (readError) {
+    throw new Error(readError.message);
+  }
+
+  // Opened, clicked or reported as spam: the mail arrived, a bounce is noise.
+  // Pending: already queued again by an earlier bounce for the same send.
+  if (
+    !existing ||
+    existing.opened_at ||
+    existing.clicked_at ||
+    existing.complained_at ||
+    existing.status === "canceled" ||
+    existing.status === "pending"
+  ) {
+    return { outcome: "ignored" };
+  }
+
+  // A soft bounce never overrides a hard one that is already recorded.
+  if (
+    bounceType === "soft" &&
+    existing.status === "bounced" &&
+    existing.bounce_type !== "soft"
+  ) {
+    return { outcome: "ignored" };
+  }
+
+  const supabase = getSupabaseAdmin();
+  const now = new Date();
+  const retryCount = existing.retry_count ?? 0;
+
+  if (
+    allowRetry &&
+    bounceType === "hard" &&
+    hasRetryColumns(existing) &&
+    isTemporaryDeliveryError(error) &&
+    retryCount < MAX_DELIVERY_RETRIES
+  ) {
+    const attempt = retryCount + 1;
+    const retryAt = nextRetryAt(attempt, "bounce", now.getTime());
+    const { error: updateError } = await supabase
+      .from("email_deliveries")
+      .update({
+        status: "pending",
+        error: retryNote(attempt, error),
+        bounce_type: "hard",
+        retry_count: attempt,
+        next_attempt_at: retryAt.toISOString(),
+        updated_at: now.toISOString(),
+      })
+      .eq("id", existing.id)
+      .neq("status", "pending");
+
+    if (!updateError) {
+      return { outcome: "requeued", retryAt };
+    }
+    console.error("markDeliveryBounced requeue:", updateError.message);
+  }
+
+  const label = bounceType === "soft" ? `Soft bounce: ${error}` : error;
+  const { error: updateError } = await supabase
     .from("email_deliveries")
     .update({
       status: "bounced",
-      error,
-      updated_at: new Date().toISOString(),
+      error: label,
+      ...(hasRetryColumns(existing) ? { bounce_type: bounceType } : {}),
+      updated_at: now.toISOString(),
     })
-    .eq("job_id", jobId)
-    .eq("recipient", normalizeEmail(recipient));
+    .eq("id", existing.id);
+
+  if (updateError) {
+    throw new Error(updateError.message);
+  }
+
+  return { outcome: "bounced" };
 }
 
 export async function markDeliveryDelivered(
@@ -301,9 +418,10 @@ export async function markDeliveryDelivered(
 
   if (
     !existing ||
-    isTerminalStatus(existing.status) ||
+    !canTakeDeliveryProof(existing) ||
     existing.status === "opened" ||
-    existing.status === "clicked"
+    existing.status === "clicked" ||
+    (existing.status === "bounced" && existing.bounce_type !== "soft")
   ) {
     return;
   }
@@ -315,10 +433,118 @@ export async function markDeliveryDelivered(
     .update({
       status: "delivered",
       delivered_at: deliveredAt,
+      ...clearBounceFields(existing),
       updated_at: new Date().toISOString(),
     })
-    .eq("job_id", jobId)
-    .eq("recipient", normalizeEmail(recipient));
+    .eq("id", existing.id);
+}
+
+/**
+ * Puts addresses back in the queue for another try. Returns the earliest
+ * time one of them is due, or null when nothing was queued (no rows matched,
+ * or the database does not have migration 016 yet).
+ */
+export async function requeueDeliveries(
+  jobId: string,
+  rows: Array<Pick<EmailDelivery, "recipient" | "error" | "retry_count">>,
+  options: { kind: "bounce" | "send"; manual?: boolean; now?: number },
+): Promise<Date | null> {
+  if (rows.length === 0) return null;
+
+  const supabase = getSupabaseAdmin();
+  const now = options.now ?? Date.now();
+  const groups = new Map<
+    string,
+    { values: Record<string, unknown>; recipients: string[]; at: Date }
+  >();
+
+  for (const row of rows) {
+    const attempt = (row.retry_count ?? 0) + 1;
+    const at = options.manual
+      ? new Date(now)
+      : nextRetryAt(attempt, options.kind, now);
+    const note = retryNote(attempt, row.error ?? "Delivery failed", {
+      manual: options.manual,
+    });
+    const key = `${attempt}|${at.toISOString()}|${note}`;
+    const group = groups.get(key) ?? {
+      values: {
+        status: "pending",
+        error: note,
+        retry_count: attempt,
+        next_attempt_at: at.toISOString(),
+        updated_at: new Date(now).toISOString(),
+      },
+      recipients: [],
+      at,
+    };
+    group.recipients.push(normalizeEmail(row.recipient));
+    groups.set(key, group);
+  }
+
+  let earliest: Date | null = null;
+
+  for (const group of groups.values()) {
+    for (let i = 0; i < group.recipients.length; i += INSERT_CHUNK) {
+      const chunk = group.recipients.slice(i, i + INSERT_CHUNK);
+      const { error } = await supabase
+        .from("email_deliveries")
+        .update(group.values)
+        .eq("job_id", jobId)
+        .in("status", ["failed", "bounced"])
+        .in("recipient", chunk);
+
+      if (error) {
+        console.error("requeueDeliveries:", error.message);
+        return earliest;
+      }
+    }
+    if (!earliest || group.at < earliest) earliest = group.at;
+  }
+
+  return earliest;
+}
+
+export type SendQueue = {
+  /** Pending addresses that may go out now. */
+  due: string[];
+  /** Earliest time a pending address that is not due yet becomes due. */
+  nextDueAt: Date | null;
+  /**
+   * False when the job has no delivery rows and `due` is the job's own list:
+   * anything held back must get a pending row first, or it is forgotten.
+   */
+  hasRows: boolean;
+};
+
+/** Pending addresses of a send job, split into "now" and "later". */
+export async function getSendQueue(
+  jobId: string,
+  tenantId: string,
+  fallback: string[],
+  now = Date.now(),
+): Promise<SendQueue> {
+  const deliveries = await getDeliveriesForJob(jobId, tenantId);
+  if (deliveries.length === 0) {
+    return { due: uniqueEmails(fallback), nextDueAt: null, hasRows: false };
+  }
+
+  const due: string[] = [];
+  let nextDueAt: Date | null = null;
+
+  for (const delivery of deliveries) {
+    if (delivery.status !== "pending") continue;
+    const at = delivery.next_attempt_at
+      ? new Date(delivery.next_attempt_at)
+      : null;
+    if (at && at.getTime() > now) {
+      if (!nextDueAt || at < nextDueAt) nextDueAt = at;
+      continue;
+    }
+    due.push(delivery.recipient);
+  }
+
+  return { due: uniqueEmails(due), nextDueAt, hasRows: true };
 }
 
 export async function insertPendingDeliveries(
@@ -436,23 +662,6 @@ export async function getDeliveriesForJobs(
   return all;
 }
 
-export async function getSendableRecipients(
-  jobId: string,
-  tenantId: string,
-  fallback: string[],
-): Promise<string[]> {
-  const deliveries = await getDeliveriesForJob(jobId, tenantId);
-  if (deliveries.length === 0) {
-    return uniqueEmails(fallback);
-  }
-
-  return uniqueEmails(
-    deliveries
-      .filter((delivery) => delivery.status === "pending")
-      .map((delivery) => delivery.recipient),
-  );
-}
-
 export function summarizeDeliveries(deliveries: EmailDelivery[]) {
   const opened = deliveries.filter((d) => d.opened_at !== null).length;
   const clicked = deliveries.filter((d) => d.clicked_at !== null).length;
@@ -474,13 +683,7 @@ export function summarizeDeliveries(deliveries: EmailDelivery[]) {
       d.status !== "canceled",
   ).length;
   const notOpened = deliveries.filter(
-    (d) =>
-      d.sent_at !== null &&
-      d.opened_at === null &&
-      d.status !== "failed" &&
-      d.status !== "bounced" &&
-      d.status !== "complained" &&
-      !isInvalidDeliveryError(d.error),
+    (d) => isEngagementEligible(d) && d.opened_at === null,
   ).length;
 
   return {
@@ -546,11 +749,11 @@ export async function getOpenStatsByJobIds(
     if (row.opened_at) {
       current.opened += 1;
     } else if (
-      row.sent_at &&
-      row.status !== "failed" &&
-      row.status !== "bounced" &&
-      row.status !== "complained" &&
-      !isInvalidDeliveryError(row.error as string | null)
+      isEngagementEligible({
+        sent_at: row.sent_at as string | null,
+        status: row.status as string,
+        error: row.error as string | null,
+      })
     ) {
       current.notOpened += 1;
     }

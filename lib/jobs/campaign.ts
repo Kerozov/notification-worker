@@ -608,17 +608,27 @@ async function cancelPendingSendRow(job: EmailJob): Promise<EmailJob | null> {
     return null;
   }
 
+  // A standalone job is pending again between paced steps with mail already
+  // out; "canceled" would tell the caller nobody got it. A pocket may stop
+  // half way: cancelling a campaign leaves already-sent mail alone.
+  const standalone = !job.parent_id;
+  if (standalone && job.sent_count > 0) {
+    return null;
+  }
+
   const supabase = getSupabaseAdmin();
-  const { data, error } = await supabase
+  let update = supabase
     .from("email_jobs")
     .update({
       status: "canceled",
       updated_at: new Date().toISOString(),
     })
     .eq("id", job.id)
-    .eq("status", "pending")
-    .select("*")
-    .maybeSingle();
+    .eq("status", "pending");
+  if (standalone) {
+    update = update.eq("sent_count", 0);
+  }
+  const { data, error } = await update.select("*").maybeSingle();
 
   if (error) {
     throw new Error(error.message);

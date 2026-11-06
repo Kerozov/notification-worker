@@ -10,6 +10,7 @@ import {
   summarizeDeliveries,
   type DeliveryStatus,
 } from "@/lib/deliveries/store";
+import { apiJobStatus } from "@/lib/deliveries/stats";
 import {
   campaignStatusFromChildren,
   getDeliveriesForEmailJob,
@@ -113,7 +114,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
 
     const response: Record<string, unknown> = {
       jobId: job.id,
-      status: job.status,
+      status: apiJobStatus(job),
       subject: job.subject,
       sendAt: job.send_at,
       sentAt: job.sent_at,
@@ -134,7 +135,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
     if (children.length > 0) {
       response.jobs = children.map((child) => ({
         jobId: child.id,
-        status: child.status,
+        status: apiJobStatus(child),
         sent: child.sent_count,
         failed: child.failed_count,
         recipientCount: child.recipients.length,
@@ -297,7 +298,7 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
     return Response.json(
       {
         error: "Job not cancelable",
-        status: existing.status,
+        status: apiJobStatus(existing),
       },
       { status: 409 },
     );

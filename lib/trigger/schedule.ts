@@ -31,6 +31,110 @@ export function hasTriggerSecret(): boolean {
   return Boolean(process.env.TRIGGER_SECRET_KEY?.trim());
 }
 
+/**
+ * Pacing (per-domain quota, pockets one after another, retries later) needs a
+ * way to come back later, which is a delayed Trigger.dev run. Without
+ * Trigger.dev everything goes out at once, as before.
+ */
+export function isPacingEnabled(): boolean {
+  return hasTriggerSecret();
+}
+
+/**
+ * Runs the next step of a send job at `at` (throttled leftovers, a retry that
+ * is due). One run per job per minute: a second request for the same minute
+ * is the same run.
+ */
+export async function scheduleEmailJobStep(
+  jobId: string,
+  at: Date,
+  options?: { idempotencyKey?: string },
+): Promise<boolean> {
+  if (!hasTriggerSecret()) return false;
+
+  const minute = Math.floor(at.getTime() / 60_000);
+
+  try {
+    await tasks.trigger<typeof sendEmailJobTask>(
+      "send-email-job",
+      { jobId },
+      {
+        delay: at,
+        idempotencyKey:
+          options?.idempotencyKey ?? `email-step:${jobId}:${minute}`,
+        idempotencyKeyTTL: "2d",
+      },
+    );
+    return true;
+  } catch (error) {
+    console.error(`scheduleEmailJobStep ${jobId} failed:`, error);
+    return false;
+  }
+}
+
+/**
+ * A pocket nobody has picked up yet: still pending and nothing counted on it.
+ * (A pocket held back with zero quota also looks like this; starting it again
+ * only costs one extra run.)
+ */
+export function isUnstartedPocket(job: {
+  status: string;
+  sent_count: number;
+  failed_count: number;
+}): boolean {
+  return job.status === "pending" && job.sent_count === 0 && job.failed_count === 0;
+}
+
+/**
+ * The pocket a chain should start next: the first unstarted one in list order,
+ * wherever it sits. List order is not creation order (pockets inserted together
+ * share created_at and are ordered by random id), so "the one after me" could
+ * skip a pocket for good.
+ */
+export function pickNextPocket<
+  T extends { id: string; status: string; sent_count: number; failed_count: number },
+>(children: T[], afterJobId: string | null): T | null {
+  return (
+    children.find(
+      (child) => child.id !== afterJobId && isUnstartedPocket(child),
+    ) ?? null
+  );
+}
+
+/**
+ * Pockets of a campaign go out one after another, so a 50k list does not hit
+ * one provider from many pockets at once. When a pocket is done for now, it
+ * starts the next unstarted pocket — once: the run key is per finishing
+ * pocket, so a pocket that finishes again after a retry cannot start a second,
+ * parallel chain.
+ */
+export async function startNextPocket(
+  parentId: string,
+  afterJobId: string,
+): Promise<string | null> {
+  if (!hasTriggerSecret()) return null;
+
+  const { listChildJobs } = await import("@/lib/jobs/campaign");
+  const next = pickNextPocket(await listChildJobs(parentId), afterJobId);
+
+  if (!next) return null;
+
+  try {
+    await tasks.trigger<typeof sendEmailJobTask>(
+      "send-email-job",
+      { jobId: next.id },
+      {
+        idempotencyKey: `email-pocket-after:${afterJobId}`,
+        idempotencyKeyTTL: "7d",
+      },
+    );
+    return next.id;
+  } catch (error) {
+    console.error(`startNextPocket ${next.id} failed:`, error);
+    return null;
+  }
+}
+
 /** Delayed jobs need Trigger.dev. Call before creating a pending row. */
 export function assertCanDispatchAt(sendAt: Date): void {
   if (isImmediateSend(sendAt)) {
@@ -102,8 +206,16 @@ export async function dispatchCreatedEmailJobs(
     status: string;
     kind?: string;
     recipients: string[];
+    sent_count: number;
+    failed_count: number;
   },
-  children: Array<{ id: string; status: string; recipients: string[] }>,
+  children: Array<{
+    id: string;
+    status: string;
+    recipients: string[];
+    sent_count: number;
+    failed_count: number;
+  }>,
   options?: { sendAt?: Date },
 ): Promise<{
   mode: DispatchMode;
@@ -120,7 +232,20 @@ export async function dispatchCreatedEmailJobs(
   let mode: DispatchMode = "immediate";
   let result: ProcessJobResult | null = null;
   const sendAt = options?.sendAt;
-  const pending = targets.filter((target) => target.status === "pending");
+  const waiting = targets.filter((target) => target.status === "pending");
+  // With pacing, a campaign starts one unstarted pocket and each pocket starts
+  // the next when it is done. Pockets that already began and wait for their
+  // next step are resumed too (their own run normally does that; an extra
+  // run is harmless), so an admin "send now" also unsticks a stalled one.
+  const pending =
+    isCampaign && isPacingEnabled()
+      ? [
+          ...waiting.filter((target) => !isUnstartedPocket(target)),
+          ...[pickNextPocket(waiting, null)].filter(
+            (target): target is (typeof waiting)[number] => target !== null,
+          ),
+        ]
+      : waiting;
 
   await mapWithConcurrency(pending, TRIGGER_CONCURRENCY, async (target) => {
     if (sendAt && !isImmediateSend(sendAt)) {

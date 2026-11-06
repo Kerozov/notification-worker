@@ -45,11 +45,15 @@ export function isEngagementEligible(
     error: string | null;
   },
 ): boolean {
+  // A pending row can carry sent_at from a send that bounced and is queued
+  // again; until it goes out again it is "waiting", not "not opened".
   return Boolean(
     row.sent_at &&
       row.status !== "failed" &&
       row.status !== "bounced" &&
       row.status !== "complained" &&
+      row.status !== "pending" &&
+      row.status !== "canceled" &&
       !isInvalidDeliveryError(row.error),
   );
 }
@@ -197,6 +201,15 @@ export function mergeJobDeliveryStats(
   return out;
 }
 
+/**
+ * A job's status for API callers: a paced job that is pending again between
+ * steps (or for a retry) with mail already out is "processing", not
+ * "pending" — callers read "pending" as "nobody got it yet".
+ */
+export function apiJobStatus(job: { status: string; sent_count: number }): string {
+  return job.status === "pending" && job.sent_count > 0 ? "processing" : job.status;
+}
+
 export function resolveDisplayStatus(
   job: {
     status: string;
@@ -207,7 +220,7 @@ export function resolveDisplayStatus(
   stats?: JobDeliveryStats,
 ): string {
   if (job.status === "pending" || job.status === "processing") {
-    return job.status;
+    return apiJobStatus(job);
   }
 
   if (job.status === "canceled") {
