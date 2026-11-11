@@ -297,6 +297,25 @@ Admin → campaign → **Retry temporary bounces (N)** puts the temporary failur
 
 Without `TRIGGER_SECRET_KEY` nothing is paced: there is no way to come back later, so everything goes out at once as before.
 
+## Ops API for Jarvis
+
+The owner's assistant (Jarvis) watches the worker and can fix the usual problems. It has its own key, separate from `CRON_SECRET` and tenant keys:
+
+```env
+OPS_API_KEY=<random, at least 24 characters>   # Vercel env; the same value goes to Jarvis as MAIL_WORKER_OPS_KEY
+```
+
+Without `OPS_API_KEY` every `/api/ops/*` route answers `401`.
+
+| Route | What it does |
+|-------|--------------|
+| `GET /api/ops/health` | Read-only. `status` ok / warn / critical, `problems` (stable `key`, `level`, `text`, `jobIds`), failed jobs in 24h, jobs stuck in processing > 10 min, pending jobs > 30 min past `send_at` (not counting planned retries), addresses with a temporary bounce, last cron run. |
+| `POST /api/ops/retry` `{ jobId }` | Same as admin “Retry temporary bounces” for a send job or campaign. Typos and dead mailboxes are never resent; sends are paced per domain. |
+| `POST /api/ops/drain` | Same as the cron safety net, email and SMS: heals open campaigns and sends what is due but was never picked up. |
+| `POST /api/ops/process` `{ jobId, channel }` | Runs one pending or stuck job now (a stale “processing” job is released first). |
+
+Jarvis only reads on its own. Every POST runs after the owner approves it in Telegram or the panel.
+
 ## Limits (v1)
 
 - Max 50,000 recipients per HTTP request. The worker keeps that list on a parent campaign job and sends in pockets of 250 (ZeptoMail is batched 50/request).
