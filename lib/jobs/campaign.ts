@@ -603,8 +603,31 @@ export async function resolveSendContent(job: EmailJob): Promise<{
   };
 }
 
+/**
+ * A "processing" job this long untouched has no live step: a Vercel function
+ * stops after 300 s, and a working step touches the job after every chunk.
+ */
+export const DEAD_STEP_MS = 6 * 60_000;
+
+/**
+ * Whether a send job can still be cancelled: it is pending, or "processing"
+ * with a step that died (nothing is sending it, so it is as good as pending).
+ */
+export function cancellableSendState(
+  job: { status: string; updated_at: string },
+  now = Date.now(),
+): "pending" | "dead-step" | null {
+  if (job.status === "pending") return "pending";
+  if (job.status !== "processing") return null;
+  const at = new Date(job.updated_at).getTime();
+  if (Number.isNaN(at)) return null;
+  return now - at >= DEAD_STEP_MS ? "dead-step" : null;
+}
+
 async function cancelPendingSendRow(job: EmailJob): Promise<EmailJob | null> {
-  if (job.status !== "pending") {
+  const now = Date.now();
+  const state = cancellableSendState(job, now);
+  if (!state) {
     return null;
   }
 
@@ -623,8 +646,14 @@ async function cancelPendingSendRow(job: EmailJob): Promise<EmailJob | null> {
       status: "canceled",
       updated_at: new Date().toISOString(),
     })
-    .eq("id", job.id)
-    .eq("status", "pending");
+    .eq("id", job.id);
+  // A step that comes back to life in between keeps its job.
+  update =
+    state === "pending"
+      ? update.eq("status", "pending")
+      : update
+          .eq("status", "processing")
+          .lt("updated_at", new Date(now - DEAD_STEP_MS).toISOString());
   if (standalone) {
     update = update.eq("sent_count", 0);
   }
@@ -875,13 +904,28 @@ export async function getDeliveriesForEmailJob(job: EmailJob) {
   );
 }
 
-export async function findOpenCampaigns(limit = 10): Promise<EmailJob[]> {
+/**
+ * Open campaigns that are due. A campaign planned for later is left alone:
+ * its new pockets would go out at once. `windowMs` limits it to campaigns
+ * sent or touched that recently (the automatic safety net).
+ */
+export async function findOpenCampaigns(
+  limit = 10,
+  options: { windowMs?: number | null; now?: number } = {},
+): Promise<EmailJob[]> {
   const supabase = getSupabaseAdmin();
-  const { data, error } = await supabase
+  const now = options.now ?? Date.now();
+  let query = supabase
     .from("email_jobs")
     .select("*")
     .eq("kind", "campaign")
     .in("status", ["pending", "processing"])
+    .lte("send_at", new Date(now).toISOString());
+  if (options.windowMs != null) {
+    const since = new Date(now - options.windowMs).toISOString();
+    query = query.or(`send_at.gte.${since},updated_at.gte.${since}`);
+  }
+  const { data, error } = await query
     .order("created_at", { ascending: true })
     .limit(limit);
 
@@ -898,11 +942,14 @@ export async function findOpenCampaigns(limit = 10): Promise<EmailJob[]> {
  * then hand only the new pockets to Trigger. Already-pending pockets are left
  * alone — re-triggering them on every heal would stampede the queue.
  */
-export async function healOpenCampaigns(limit = 10): Promise<{
+export async function healOpenCampaigns(
+  limit = 10,
+  options: { windowMs?: number | null } = {},
+): Promise<{
   campaigns: number;
   created: number;
 }> {
-  const campaigns = await findOpenCampaigns(limit);
+  const campaigns = await findOpenCampaigns(limit, options);
   let created = 0;
 
   for (const parent of campaigns) {

@@ -28,6 +28,7 @@ import {
 } from "@/lib/deliveries/retry";
 import { resolveDisplayStatus } from "@/lib/deliveries/stats";
 import { getJobById } from "@/lib/jobs/query";
+import { findDrainJobs } from "@/lib/jobs/drain";
 import {
   campaignInputFromJob,
   cancelEmailJob,
@@ -871,6 +872,16 @@ export function isStaleProcessing(
   return now - at >= staleMs;
 }
 
+/** When a job last touched at `updatedAt` counts as stale, plus a small margin. */
+export function staleCheckAt(
+  updatedAt: string,
+  staleMs = STALE_PROCESSING_MS,
+): Date | null {
+  const at = new Date(updatedAt).getTime();
+  if (Number.isNaN(at)) return null;
+  return new Date(at + staleMs + 30_000);
+}
+
 async function releaseStaleProcessingJob(jobId: string): Promise<EmailJob | null> {
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
@@ -935,6 +946,16 @@ export async function processJobById(
   }
 
   if (!isStaleProcessing(existing.updated_at)) {
+    // Another step holds the job, or one that died moments ago (a Trigger.dev
+    // retry after a Vercel timeout lands here). Come back once it would count
+    // as stale, so a dead step cannot leave the job "processing" for good.
+    if (existing.kind !== "campaign") {
+      const checkAt = staleCheckAt(existing.updated_at);
+      if (checkAt) {
+        const { scheduleEmailJobStep } = await import("@/lib/trigger/schedule");
+        await scheduleEmailJobStep(existing.id, checkAt);
+      }
+    }
     return {
       jobId: existing.id,
       status: "processing",
@@ -968,47 +989,42 @@ export async function processJobById(
   return processClaimedJob(claimedAgain);
 }
 
-export async function findPendingJobs(limit = 20): Promise<EmailJob[]> {
-  const supabase = getSupabaseAdmin();
-  const now = new Date().toISOString();
+/** The drain stops starting new jobs after this long, well inside the 300 s route limit. */
+const DRAIN_BUDGET_MS = 200_000;
 
-  let { data, error } = await supabase
-    .from("email_jobs")
-    .select("*")
-    .eq("status", "pending")
-    .eq("kind", "send")
-    .lte("send_at", now)
-    .order("send_at", { ascending: true })
-    .limit(limit);
-
-  if (error && isMissingCampaignColumns(error)) {
-    ({ data, error } = await supabase
-      .from("email_jobs")
-      .select("*")
-      .eq("status", "pending")
-      .lte("send_at", now)
-      .order("send_at", { ascending: true })
-      .limit(limit));
-  }
-
-  if (error) {
-    throw new Error(error.message);
-  }
-
-  return (data ?? []).map(asEmailJob);
-}
-
+/**
+ * Runs send jobs whose own run never came back: pending work overdue by more
+ * than a few minutes, and "processing" jobs whose step died. `windowMs` limits
+ * it to jobs active that recently (the automatic safety net); null = any age
+ * (a drain the owner asked for). What does not fit is left for the next drain.
+ */
 export async function processPendingJobs(
   limit = 20,
-): Promise<{ processed: number; results: ProcessJobResult[] }> {
-  const pendingJobs = await findPendingJobs(limit);
+  options: { windowMs?: number | null; budgetMs?: number } = {},
+): Promise<{ processed: number; skipped: number; results: ProcessJobResult[] }> {
+  const startedAt = Date.now();
+  const budgetMs = options.budgetMs ?? DRAIN_BUDGET_MS;
+  const jobIds = await findDrainJobs({
+    limit,
+    windowMs: options.windowMs ?? null,
+  });
   const results: ProcessJobResult[] = [];
+  let skipped = 0;
 
-  for (const job of pendingJobs) {
-    const result = await processJobById(job.id);
+  for (const jobId of jobIds) {
+    if (Date.now() - startedAt > budgetMs) {
+      skipped += 1;
+      continue;
+    }
 
-    if (result) {
-      results.push(result);
+    try {
+      const result = await processJobById(jobId);
+      if (result) {
+        results.push(result);
+      }
+    } catch (error) {
+      // One broken job must not keep the rest waiting.
+      console.error(`drain: job ${jobId} failed:`, error);
     }
   }
 
@@ -1016,6 +1032,7 @@ export async function processPendingJobs(
 
   return {
     processed: results.length,
+    skipped,
     results,
   };
 }

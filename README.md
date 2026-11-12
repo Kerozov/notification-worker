@@ -251,7 +251,24 @@ bun run trigger:dev      # local dev (syncs tasks to Trigger.dev)
 bun run trigger:deploy   # production — redeploy after task changes
 ```
 
-Disable or delete any old Trigger.dev scheduled tasks (e.g. `process-emails`, `process-queue-backup`) in the dashboard so runs are only per-job.
+Disable or delete any old Trigger.dev scheduled tasks (e.g. `process-emails`, `process-queue-backup`) in the dashboard: the only schedule is the safety net below.
+
+### Safety net (`drain-email-safety-net`)
+
+Per-job runs can get lost: a trigger call that failed, a step cut off by the Vercel timeout, a retry that came back before the job counted as stale. Without a net such a job stays `pending` or `processing` for good.
+
+Every 5 minutes (production only) Trigger.dev calls `POST /api/internal/drain/email`, which:
+
+- heals open campaigns that are due (never one planned for later),
+- resumes send jobs stuck in `processing` for 6+ min (a Vercel function stops after 300 s),
+- runs pending send jobs whose work has been due for 5+ min with nobody touching them; jobs waiting for a planned retry are left alone,
+- starts at most one unstarted pocket per campaign, and none while another pocket of it is sending,
+- touches only jobs sent or active in the **last 24 h**. Older ones stay for the owner (`POST /api/ops/drain`), so the net never sends weeks-old drip mail,
+- stops starting new jobs after 200 s; the rest go in the next run.
+
+Also: the `send-email-job` retry waits 3–4 min (`maxTimeoutInMs`, otherwise Trigger.dev caps it at 60 s), and a run that finds its job still `processing` but not yet stale schedules a check-back instead of returning for good.
+
+After changing anything under `src/trigger/`, run `bun run trigger:deploy`.
 
 ## Admin panel
 
@@ -309,9 +326,9 @@ Without `OPS_API_KEY` every `/api/ops/*` route answers `401`.
 
 | Route | What it does |
 |-------|--------------|
-| `GET /api/ops/health` | Read-only. `status` ok / warn / critical, `problems` (stable `key`, `level`, `text`, `jobIds`), failed jobs in 24h, jobs stuck in processing > 10 min, pending jobs > 30 min past `send_at` (not counting planned retries), addresses with a temporary bounce, last cron run. |
+| `GET /api/ops/health` | Read-only. `status` ok / warn / critical, `problems` (stable `key`, `level`, `text`, `jobIds`), failed jobs in 24h, send jobs stuck in processing > 10 min (campaign rows are not counted: their pockets are), pending jobs > 30 min past `send_at` (not counting planned retries), addresses with a temporary bounce, last cron run. Recent jobs heal through the safety net before these limits, so what shows here usually needs the owner. |
 | `POST /api/ops/retry` `{ jobId }` | Same as admin “Retry temporary bounces” for a send job or campaign. Typos and dead mailboxes are never resent; sends are paced per domain. |
-| `POST /api/ops/drain` | Same as the cron safety net, email and SMS: heals open campaigns and sends what is due but was never picked up. |
+| `POST /api/ops/drain` | Like the safety net, email and SMS, but with **no age limit**: heals open campaigns, resumes jobs stuck in processing and sends what is due but was never picked up, however old. |
 | `POST /api/ops/process` `{ jobId, channel }` | Runs one pending or stuck job now (a stale “processing” job is released first). |
 
 Jarvis only reads on its own. Every POST runs after the owner approves it in Telegram or the panel.

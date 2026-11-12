@@ -153,7 +153,10 @@ export async function collectHealth(now = Date.now()): Promise<HealthSnapshot> {
         .gte("updated_at", since).order("updated_at", { ascending: false }).limit(20),
       supabase.from("sms_jobs").select(smsCols).eq("status", "failed")
         .gte("updated_at", since).order("updated_at", { ascending: false }).limit(20),
-      supabase.from("email_jobs").select(emailCols).eq("status", "processing").lt("updated_at", stuckBefore).limit(20),
+      // Send jobs only: a campaign row is "processing" while its pockets work,
+      // and a stuck pocket is reported on its own.
+      supabase.from("email_jobs").select(emailCols).eq("status", "processing").eq("kind", "send")
+        .lt("updated_at", stuckBefore).limit(20),
       supabase.from("sms_jobs").select(smsCols).eq("status", "processing").lt("updated_at", stuckBefore).limit(20),
       supabase.from("email_jobs").select(emailCols).eq("status", "pending").eq("kind", "send")
         .lt("send_at", overdueBefore).lt("updated_at", overdueBefore).limit(50),

@@ -4,13 +4,15 @@ import {
   verifyInternalBearer,
 } from "@/lib/internal-auth";
 import { healOpenCampaigns } from "@/lib/jobs/campaign";
+import { SAFETY_NET_WINDOW_MS } from "@/lib/jobs/drain";
 import { processPendingJobs } from "@/lib/jobs/process";
 
 export const maxDuration = 300;
 
 async function drain() {
-  const healed = await healOpenCampaigns(10);
-  const processed = await processPendingJobs(30);
+  const options = { windowMs: SAFETY_NET_WINDOW_MS };
+  const healed = await healOpenCampaigns(10, options);
+  const processed = await processPendingJobs(30, options);
   return {
     channel: "email" as const,
     healedCampaigns: healed.campaigns,
@@ -19,7 +21,12 @@ async function drain() {
   };
 }
 
-/** Safety net: send jobs that were stored but never given a Trigger.dev run. */
+/**
+ * Safety net, every 5 minutes from the Trigger.dev schedule
+ * `drain-email-safety-net`: sends what lost its own run (a failed trigger, a
+ * step cut off by a timeout). Only jobs active in the last 24 h; older ones
+ * stay for the owner (ops drain).
+ */
 export async function POST(request: NextRequest) {
   if (!verifyInternalBearer(request)) {
     return internalUnauthorizedResponse();

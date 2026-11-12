@@ -5,7 +5,10 @@ import { cancelJob } from "@/lib/ops/jobs";
 
 const Body = z.object({ jobId: z.string().uuid(), channel: z.enum(["email", "sms"]).default("email") });
 
-/** Same as admin "Cancel": a pending or scheduled job (a campaign with its pending parts) stops. */
+/**
+ * Same as admin "Cancel": a pending or scheduled job (a campaign with its pending parts) stops.
+ * A job stuck in "processing" whose step died (6+ min untouched) can be cancelled too.
+ */
 export async function POST(request: NextRequest) {
   if (!verifyOpsBearer(request)) return opsUnauthorized();
   const parsed = Body.safeParse(await request.json().catch(() => null));
