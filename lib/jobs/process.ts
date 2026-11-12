@@ -5,6 +5,7 @@ import {
   getSupabaseAdmin,
   Tenant,
 } from "@/lib/db/supabase";
+import { PermanentAttachmentError } from "@/lib/email/attachments";
 import { sendEmailBatch } from "@/lib/email/send";
 import {
   nextWindowStart,
@@ -807,6 +808,20 @@ export async function processClaimedJob(
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Unknown send error";
+
+    // The same attachment fails the same way every time: fail what is still
+    // pending instead of rescheduling (each retry downloads the file again).
+    if (error instanceof PermanentAttachmentError) {
+      try {
+        const pending = (await getDeliveriesForJob(job.id, job.tenant_id))
+          .filter((row) => row.status === "pending")
+          .map((row) => ({ recipient: row.recipient, error: message }));
+        await recordDeliveryResults(job.id, job.tenant_id, pending);
+      } catch (markError) {
+        console.error("mark deliveries failed after attachment error:", markError);
+      }
+      return failClaimed(message);
+    }
 
     let deliveries: Awaited<ReturnType<typeof getDeliveriesForJob>> = [];
     try {

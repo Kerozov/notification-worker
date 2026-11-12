@@ -13,6 +13,19 @@ const BLOCKED_HOSTS = new Set([
   "metadata.google.internal",
 ]);
 
+/**
+ * An attachment that can never be sent as it is: too large, empty, a bad URL.
+ * Retrying only downloads the same file again (a 17.7 MB PDF retried every
+ * 2 minutes used up a tenant's whole Supabase egress quota in a day), so the
+ * job fails its pending recipients instead of being rescheduled.
+ */
+export class PermanentAttachmentError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "PermanentAttachmentError";
+  }
+}
+
 export type ZeptoAttachment = {
   content: string;
   mime_type: string;
@@ -62,15 +75,15 @@ function assertSafeHttpsUrl(raw: string, filename: string): URL {
   try {
     url = new URL(raw);
   } catch {
-    throw new Error(`Invalid attachment URL (${filename})`);
+    throw new PermanentAttachmentError(`Invalid attachment URL (${filename})`);
   }
 
   if (url.protocol !== "https:") {
-    throw new Error(`Attachment URL must be https (${filename})`);
+    throw new PermanentAttachmentError(`Attachment URL must be https (${filename})`);
   }
 
   if (isBlockedHost(url.hostname)) {
-    throw new Error(`Attachment URL host is not allowed (${filename})`);
+    throw new PermanentAttachmentError(`Attachment URL host is not allowed (${filename})`);
   }
 
   return url;
@@ -112,6 +125,35 @@ async function fetchWithSafeRedirects(
   throw new Error(`Too many redirects for attachment ${filename}`);
 }
 
+/** Reads the body but stops as soon as it passes the limit (no Content-Length). */
+async function readCapped(response: Response, filename: string): Promise<Uint8Array> {
+  if (!response.body) {
+    return new Uint8Array(await response.arrayBuffer());
+  }
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > MAX_ATTACHMENT_BYTES) {
+      await reader.cancel().catch(() => {});
+      throw new PermanentAttachmentError(
+        `Attachment ${filename} is too large (max ${MAX_ATTACHMENT_BYTES} bytes)`,
+      );
+    }
+    chunks.push(value);
+  }
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return out;
+}
+
 async function fetchAttachment(att: EmailAttachment): Promise<ZeptoAttachment> {
   const filename = safeFilename(att.filename);
   const url = assertSafeHttpsUrl(att.url, filename);
@@ -121,9 +163,16 @@ async function fetchAttachment(att: EmailAttachment): Promise<ZeptoAttachment> {
   try {
     response = await fetchWithSafeRedirects(url, filename, att.contentType);
   } catch (error) {
+    if (error instanceof PermanentAttachmentError) throw error;
     const message =
       error instanceof Error ? error.message : "Attachment fetch failed";
     throw new Error(`Could not fetch attachment ${filename}: ${message}`);
+  }
+
+  if (response.status === 404 || response.status === 410) {
+    throw new PermanentAttachmentError(
+      `Attachment ${filename} not found (HTTP ${response.status})`,
+    );
   }
 
   if (!response.ok) {
@@ -134,21 +183,23 @@ async function fetchAttachment(att: EmailAttachment): Promise<ZeptoAttachment> {
 
   const declaredLength = Number(response.headers.get("content-length") || 0);
   if (declaredLength > MAX_ATTACHMENT_BYTES) {
-    throw new Error(
+    // Do not pull the rest of the body over the wire.
+    await response.body?.cancel().catch(() => {});
+    throw new PermanentAttachmentError(
       `Attachment ${filename} is too large (max ${MAX_ATTACHMENT_BYTES} bytes)`,
     );
   }
 
-  const bytes = new Uint8Array(await response.arrayBuffer());
+  const bytes = await readCapped(response, filename);
 
   if (bytes.byteLength > MAX_ATTACHMENT_BYTES) {
-    throw new Error(
+    throw new PermanentAttachmentError(
       `Attachment ${filename} is too large (max ${MAX_ATTACHMENT_BYTES} bytes)`,
     );
   }
 
   if (bytes.byteLength === 0) {
-    throw new Error(`Attachment ${filename} is empty`);
+    throw new PermanentAttachmentError(`Attachment ${filename} is empty`);
   }
 
   return {
