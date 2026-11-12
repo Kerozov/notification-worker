@@ -1,0 +1,50 @@
+name: Trigger.dev deploy
+
+# Tasks under src/trigger/ (per-job sends and the 5-minute safety-net drain)
+# only change in Trigger.dev after a deploy. This runs it on every push that
+# touches them, and by hand from the Actions tab ("Run workflow").
+# Needs the repo secret TRIGGER_ACCESS_TOKEN (Trigger.dev → Account →
+# Personal Access Tokens).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/trigger/**"
+      - "trigger.config.ts"
+      - "lib/trigger/**"
+      - ".github/workflows/trigger-deploy.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: trigger-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      TRIGGER_ACCESS_TOKEN: ${{ secrets.TRIGGER_ACCESS_TOKEN }}
+    steps:
+      - name: Check the token
+        run: |
+          if [ -z "$TRIGGER_ACCESS_TOKEN" ]; then
+            echo "::error::TRIGGER_ACCESS_TOKEN is not set in the repo secrets, so Trigger.dev was not deployed."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      - name: Deploy to Trigger.dev (production)
+        run: bunx trigger.dev@4.8.1 deploy --env prod

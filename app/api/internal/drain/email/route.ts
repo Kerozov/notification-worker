@@ -6,6 +6,8 @@ import {
 import { healOpenCampaigns } from "@/lib/jobs/campaign";
 import { SAFETY_NET_WINDOW_MS } from "@/lib/jobs/drain";
 import { processPendingJobs } from "@/lib/jobs/process";
+import { getSupabaseAdmin } from "@/lib/db/supabase";
+import { LAST_DRAIN_KEY } from "@/lib/ops/health";
 
 export const maxDuration = 300;
 
@@ -13,6 +15,11 @@ async function drain() {
   const options = { windowMs: SAFETY_NET_WINDOW_MS };
   const healed = await healOpenCampaigns(10, options);
   const processed = await processPendingJobs(30, options);
+  // Heartbeat for /api/ops/health: Jarvis warns when the drain goes quiet.
+  const at = new Date().toISOString();
+  await getSupabaseAdmin()
+    .from("worker_meta")
+    .upsert({ key: LAST_DRAIN_KEY, value: at, updated_at: at });
   return {
     channel: "email" as const,
     healedCampaigns: healed.campaigns,

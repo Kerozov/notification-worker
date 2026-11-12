@@ -268,7 +268,9 @@ Every 5 minutes (production only) Trigger.dev calls `POST /api/internal/drain/em
 
 Also: the `send-email-job` retry waits 3–4 min (`maxTimeoutInMs`, otherwise Trigger.dev caps it at 60 s), and a run that finds its job still `processing` but not yet stale schedules a check-back instead of returning for good.
 
-After changing anything under `src/trigger/`, run `bun run trigger:deploy`.
+After changing anything under `src/trigger/`, Trigger.dev must be redeployed. The GitHub Action `Trigger.dev deploy` does it on every push to `main` that touches the tasks (and by hand from the Actions tab); it needs the repo secret `TRIGGER_ACCESS_TOKEN`. Locally: `bun run trigger:deploy`.
+
+The drain writes `worker_meta.last_drain_run_at` on every run. `/api/ops/health` warns `drain-missing` when it never ran (schedule not deployed) and `cron-silent` when it is quiet for 20+ min. Stuck (20+ min) and overdue (30+ min) jobs from the last 24 h are critical; older leftovers are listed once as `stale` (warn), for the owner to send again or cancel.
 
 ## Admin panel
 
