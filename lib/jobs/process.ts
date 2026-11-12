@@ -823,6 +823,22 @@ export async function processClaimedJob(
       return failClaimed(message);
     }
 
+    // Any other error is retried, but not forever: an error that repeats for
+    // hours is not going away, and every run may cost a download or an API call.
+    const startedAt = job.send_at ?? job.created_at;
+    if (shouldGiveUpOnJob(startedAt)) {
+      const finalMessage = `${GIVE_UP_PREFIX}${message}`;
+      try {
+        const pending = (await getDeliveriesForJob(job.id, job.tenant_id))
+          .filter((row) => row.status === "pending")
+          .map((row) => ({ recipient: row.recipient, error: finalMessage }));
+        await recordDeliveryResults(job.id, job.tenant_id, pending);
+      } catch (markError) {
+        console.error("mark deliveries failed after giving up:", markError);
+      }
+      return failClaimed(finalMessage);
+    }
+
     let deliveries: Awaited<ReturnType<typeof getDeliveriesForJob>> = [];
     try {
       deliveries = await getDeliveriesForJob(job.id, job.tenant_id);
@@ -853,7 +869,7 @@ export async function processClaimedJob(
     if (remaining > 0 && pacing) {
       await schedule.scheduleEmailJobStep(
         job.id,
-        new Date(Date.now() + 2 * 60_000),
+        new Date(Date.now() + retryDelayMs(startedAt)),
       );
     }
 
@@ -873,6 +889,28 @@ export async function processClaimedJob(
       errors: [message],
     };
   }
+}
+
+/** A job whose send keeps failing is failed this long after it was due. */
+export const GIVE_UP_AFTER_MS = 6 * 60 * 60 * 1000;
+export const GIVE_UP_PREFIX = "Gave up after 6 hours of failed attempts: ";
+
+export function shouldGiveUpOnJob(
+  startedAt: string | null | undefined,
+  now = Date.now(),
+): boolean {
+  const at = startedAt ? new Date(startedAt).getTime() : NaN;
+  return Number.isFinite(at) && now - at >= GIVE_UP_AFTER_MS;
+}
+
+/** 2 minutes at first, growing with the job's age, at most 30 minutes. */
+export function retryDelayMs(
+  startedAt: string | null | undefined,
+  now = Date.now(),
+): number {
+  const at = startedAt ? new Date(startedAt).getTime() : NaN;
+  const age = Number.isFinite(at) ? Math.max(0, now - at) : 0;
+  return Math.min(30 * 60_000, Math.max(2 * 60_000, Math.floor(age / 4)));
 }
 
 export const STALE_PROCESSING_MS = 3 * 60 * 1000;
