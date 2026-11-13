@@ -287,44 +287,6 @@ export async function dismissOverdueJob(formData: FormData): Promise<void> {
   );
 }
 
-/** Overdue screen: runs a failed SMS job again (only if none of it went out). */
-export async function retryFailedSmsJob(formData: FormData): Promise<void> {
-  await requireAdmin();
-
-  const jobId = String(formData.get("jobId") ?? "");
-  if (!jobId) {
-    adminRedirectFromForm(formData, { error: "missing-job" });
-  }
-
-  let errorMessage: string | null = null;
-
-  try {
-    const { reopenFailedSmsJob } = await import("@/lib/admin/overdue");
-    const { processSmsJobById } = await import("@/lib/jobs/process-sms");
-
-    if (!(await reopenFailedSmsJob(jobId))) {
-      errorMessage =
-        "Only a failed SMS job with nothing sent can be retried";
-    } else {
-      const result = await processSmsJobById(jobId);
-      if (!result) {
-        errorMessage = "Job was picked up by another run";
-      } else if (result.status === "failed") {
-        errorMessage = result.errors?.join("; ") ?? "Send failed";
-      }
-    }
-  } catch (error) {
-    errorMessage = error instanceof Error ? error.message : "Retry failed";
-  }
-
-  revalidatePath("/admin");
-  revalidatePath("/admin/overdue");
-  adminRedirectFromForm(
-    formData,
-    errorMessage ? { error: errorMessage } : { sent: "sms" },
-  );
-}
-
 export async function resendSameRecipients(formData: FormData): Promise<void> {
   await requireAdmin();
 

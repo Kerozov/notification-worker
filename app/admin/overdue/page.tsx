@@ -35,7 +35,7 @@ const REASON_LABEL: Record<OverdueReason, string> = {
 };
 
 const REASON_HINT: Record<OverdueReason, string> = {
-  overdue: "Still pending, its send time has passed",
+  overdue: "The next send attempt is late",
   stuck: "Processing, but no step is running it",
   failed: "Not sent (or not to everyone)",
 };
@@ -58,20 +58,21 @@ export default async function OverduePage({
   }
 
   const params = await searchParams;
-  const flashError = params.error ? decodeURIComponent(params.error) : null;
+  const flashError = params.error;
 
+  const now = Date.now();
   const [chrome, tenants, email, sms] = await Promise.all([
-    getAdminChrome(),
+    getAdminChrome(false),
     listTenantsForAdmin().catch(() => []),
-    fetchOverdueEmailJobs<EmailJobRow>(),
-    fetchOverdueSmsJobs<SmsJobRow>(),
+    fetchOverdueEmailJobs<EmailJobRow>(now),
+    fetchOverdueSmsJobs<SmsJobRow>(now),
   ]);
   const tenantIdToSlug = new Map(tenants.map((t) => [t.id, t.slug]));
   const tenantLabel = (id: string) => tenantIdToSlug.get(id) ?? shortId(id);
 
   const success =
     params.sent === "email" || params.sent === "sms"
-      ? `${params.sent === "email" ? "Email" : "SMS"} sent.`
+      ? (params.sent === "email" ? "Email job started." : "SMS sent.")
       : params.canceled === "email" || params.canceled === "sms"
         ? `${params.canceled === "email" ? "Email" : "SMS"} canceled — it will not be sent.`
         : params.dismissed === "email" || params.dismissed === "sms"
@@ -83,15 +84,14 @@ export default async function OverduePage({
       active="overdue"
       emailPending={chrome.emailPending}
       smsPending={chrome.smsPending}
-      overdue={chrome.overdue}
+      overdue={(email.count ?? 0) + (sms.count ?? 0)}
       lastProcessed={chrome.lastCronRun}
     >
       <header className={styles.pageHeader}>
         <div>
           <h1 className={styles.pageTitle}>Overdue</h1>
           <p className={styles.pageSubtitle}>
-            Email and SMS that should have gone out but did not. Send, cancel or
-            dismiss each one — nothing here is sent without a click.
+            Late, stuck and failed email and SMS jobs. The worker can still recover pending jobs.
           </p>
         </div>
       </header>
@@ -106,14 +106,14 @@ export default async function OverduePage({
 
       <SectionBlock
         title="Email"
-        hint="Overdue: pending 10+ min past send time · Stuck: processing with a dead step · Failed: not yet dismissed"
-        badge={`${email.rows.length}`}
+        hint="Campaigns are grouped. Each row shows the next job to review."
+        badge={`${email.count ?? email.rows.length}`}
         variant="email"
       >
         {email.error ? (
           <div className={styles.empty}>{email.error}</div>
         ) : email.rows.length === 0 ? (
-          <div className={styles.empty}>Nothing overdue. All email went out.</div>
+          <div className={styles.empty}>No overdue, stuck or failed email jobs.</div>
         ) : (
           <div className={styles.tableWrap}>
             <table className={styles.table}>
@@ -149,6 +149,14 @@ export default async function OverduePage({
                         >
                           {job.subject}
                         </Link>
+                        {job.parent_id ? (
+                          <div>
+                            <Link href={`/admin/jobs/${job.parent_id}?tab=pockets`}>
+                              Campaign
+                            </Link>
+                            {job.issue_count > 1 ? ` · ${job.issue_count} jobs to review` : null}
+                          </div>
+                        ) : null}
                       </td>
                       <td className={styles.recipients}>
                         {formatRecipients(job.recipients)}
@@ -166,6 +174,7 @@ export default async function OverduePage({
                           jobId={job.id}
                           reason={job.reason}
                           recipientCount={job.recipients.length}
+                          canCancel={Boolean(job.parent_id) || job.sent_count === 0}
                         />
                       </td>
                     </tr>
@@ -188,13 +197,13 @@ export default async function OverduePage({
       <SectionBlock
         title="SMS"
         hint="Overdue: pending 10+ min past send time · Stuck: processing with a dead step · Failed: not yet dismissed"
-        badge={`${sms.rows.length}`}
+        badge={`${sms.count ?? sms.rows.length}`}
         variant="sms"
       >
         {sms.error ? (
           <div className={styles.empty}>{sms.error}</div>
         ) : sms.rows.length === 0 ? (
-          <div className={styles.empty}>Nothing overdue. All SMS went out.</div>
+          <div className={styles.empty}>No overdue, stuck or failed SMS jobs.</div>
         ) : (
           <div className={styles.tableWrap}>
             <table className={styles.table}>
@@ -242,7 +251,6 @@ export default async function OverduePage({
                           jobId={job.id}
                           reason={job.reason}
                           recipientCount={job.recipients.length}
-                          sentCount={job.sent_count}
                         />
                       </td>
                     </tr>

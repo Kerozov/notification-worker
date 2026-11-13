@@ -7,7 +7,6 @@ import {
   cancelScheduledEmailJob,
   cancelScheduledSmsJob,
   dismissOverdueJob,
-  retryFailedSmsJob,
   sendScheduledEmailJob,
   sendScheduledSmsJob,
 } from "../actions";
@@ -63,10 +62,12 @@ export function OverdueEmailActions({
   jobId,
   reason,
   recipientCount,
+  canCancel,
 }: {
   jobId: string;
   reason: OverdueReason;
   recipientCount: number;
+  canCancel: boolean;
 }) {
   if (reason === "failed") {
     return (
@@ -74,8 +75,8 @@ export function OverdueEmailActions({
         <Link className={styles.viewButton} href={`/admin/jobs/${jobId}`}>
           Open
         </Link>
-        <Link className={styles.sendNowButton} href={`/admin/resend/${jobId}`}>
-          Resend…
+        <Link className={styles.sendNowButton} href={`/admin/resend/${jobId}?segment=failed`}>
+          Review failed recipients
         </Link>
         <ConfirmButton
           jobId={jobId}
@@ -99,20 +100,22 @@ export function OverdueEmailActions({
         jobId={jobId}
         channel="email"
         action={sendScheduledEmailJob}
-        confirmText={`Send this job now to ${recipientsLabel(recipientCount)}?`}
+        confirmText={`Resume sending to pending recipients in this job (up to ${recipientsLabel(recipientCount)})?`}
         label="Send now"
         busyLabel="Sending…"
         className={styles.sendNowButton}
       />
-      <ConfirmButton
-        jobId={jobId}
-        channel="email"
-        action={cancelScheduledEmailJob}
-        confirmText="Cancel this job? It will not be sent."
-        label="Cancel"
-        busyLabel="Canceling…"
-        className={styles.cancelButton}
-      />
+      {canCancel ? (
+        <ConfirmButton
+          jobId={jobId}
+          channel="email"
+          action={cancelScheduledEmailJob}
+          confirmText="Stop sending to the remaining recipients in this job?"
+          label="Cancel"
+          busyLabel="Canceling…"
+          className={styles.cancelButton}
+        />
+      ) : null}
     </div>
   );
 }
@@ -121,12 +124,10 @@ export function OverdueSmsActions({
   jobId,
   reason,
   recipientCount,
-  sentCount,
 }: {
   jobId: string;
   reason: OverdueReason;
   recipientCount: number;
-  sentCount: number;
 }) {
   if (reason === "overdue") {
     return (
@@ -155,17 +156,6 @@ export function OverdueSmsActions({
 
   return (
     <div className={styles.actionGroup}>
-      {reason === "failed" && sentCount === 0 ? (
-        <ConfirmButton
-          jobId={jobId}
-          channel="sms"
-          action={retryFailedSmsJob}
-          confirmText={`Send this SMS again to ${recipientsLabel(recipientCount)}?`}
-          label="Retry"
-          busyLabel="Sending…"
-          className={styles.sendNowButton}
-        />
-      ) : null}
       <ConfirmButton
         jobId={jobId}
         channel="sms"

@@ -1,7 +1,7 @@
 import { getSupabaseAdmin } from "@/lib/db/supabase";
 import { countOverdueJobs } from "@/lib/admin/overdue";
 
-export async function getAdminChrome(): Promise<{
+export async function getAdminChrome(includeOverdue = true): Promise<{
   emailPending: number;
   smsPending: number;
   overdue: number;
@@ -24,7 +24,7 @@ export async function getAdminChrome(): Promise<{
       .select("value")
       .eq("key", "last_cron_run_at")
       .maybeSingle(),
-    countOverdueJobs().catch(() => 0),
+    includeOverdue ? countOverdueJobs().catch(() => 0) : 0,
   ]);
 
   return {

@@ -23,6 +23,7 @@ export default async function NewClientPage({
       active="clients"
       emailPending={chrome.emailPending}
       smsPending={chrome.smsPending}
+      overdue={chrome.overdue}
     >
       <header className={styles.pageHeader}>
         <div>

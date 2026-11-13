@@ -59,6 +59,7 @@ export default async function ResendPage({
         channel="email"
         emailPending={chrome.emailPending}
         smsPending={chrome.smsPending}
+        overdue={chrome.overdue}
       >
         <p className={styles.empty}>Job not found.</p>
       </AdminShell>
@@ -105,6 +106,7 @@ export default async function ResendPage({
       channel="email"
       emailPending={chrome.emailPending}
       smsPending={chrome.smsPending}
+      overdue={chrome.overdue}
     >
       <a className={styles.backLink} href={`/admin/jobs/${job.id}`}>
         ← Back to the campaign report

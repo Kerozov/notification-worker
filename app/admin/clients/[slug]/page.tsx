@@ -54,6 +54,7 @@ export default async function EditClientPage({
       active="clients"
       emailPending={chrome.emailPending}
       smsPending={chrome.smsPending}
+      overdue={chrome.overdue}
     >
       <header className={styles.pageHeader}>
         <div>
