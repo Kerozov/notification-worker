@@ -333,6 +333,10 @@ Without `OPS_API_KEY` every `/api/ops/*` route answers `401`.
 | `POST /api/ops/drain` | Like the safety net, email and SMS, but with **no age limit**: heals open campaigns, resumes jobs stuck in processing and sends what is due but was never picked up, however old. |
 | `POST /api/ops/process` `{ jobId, channel }` | Runs one pending or stuck job now (a stale “processing” job is released first). |
 
+`GET /api/ops/issues?channel=email|sms&reason=overdue|stuck|failed&page=1` lists undismissed issues using the same grouping as the admin Problems tab (100 per page; reason optional).
+
+`POST /api/ops/dismiss` with `{ "channel": "email", "jobIds": ["uuid"] }` acknowledges up to 100 selected notifications. Each result reports `dismissed`, `unchanged`, or `error`. It changes only `dismissed_at`: sending and job history remain intact. Use cancel to stop delivery. A dismissed campaign child can reveal the next problematic child; refresh page 1 after a batch. Health alerts and retryable-delivery alerts exclude dismissed jobs.
+
 Jarvis only reads on its own. Every POST runs after the owner approves it in Telegram or the panel.
 
 ## Limits (v1)

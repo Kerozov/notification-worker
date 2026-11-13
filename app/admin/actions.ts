@@ -274,7 +274,7 @@ export async function dismissOverdueJob(formData: FormData): Promise<void> {
       jobId,
     );
     if (!done) {
-      errorMessage = "Job not found or no longer failed / stuck";
+      errorMessage = "Job already dismissed, not found or no longer problematic";
     }
   } catch (error) {
     errorMessage = error instanceof Error ? error.message : "Dismiss failed";

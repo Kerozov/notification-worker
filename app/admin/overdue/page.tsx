@@ -24,6 +24,7 @@ import { AdminShell } from "../shell";
 import { DismissOldFailedEmailButton, OverdueEmailActions, OverdueSmsActions } from "./overdue-actions";
 
 type SearchParams = Promise<{
+  reason?: string;
   error?: string;
   sent?: string;
   canceled?: string;
@@ -62,13 +63,14 @@ export default async function OverduePage({
 
   const params = await searchParams;
   const flashError = params.error;
+  const reason = ["overdue", "stuck", "failed"].includes(params.reason ?? "") ? params.reason as OverdueReason : undefined;
 
   const now = Date.now();
   const [chrome, tenants, email, sms, oldFailedCount] = await Promise.all([
-    getAdminChrome(false),
+    getAdminChrome(Boolean(reason)),
     listTenantsForAdmin().catch(() => []),
-    fetchOverdueEmailJobs<EmailJobRow>(now),
-    fetchOverdueSmsJobs<SmsJobRow>(now),
+    fetchOverdueEmailJobs<EmailJobRow>(now, reason),
+    fetchOverdueSmsJobs<SmsJobRow>(now, reason),
     countOldFailedEmailJobs(now),
   ]);
   const tenantIdToSlug = new Map(tenants.map((t) => [t.id, t.slug]));
@@ -90,18 +92,23 @@ export default async function OverduePage({
       active="overdue"
       emailPending={chrome.emailPending}
       smsPending={chrome.smsPending}
-      overdue={(email.count ?? 0) + (sms.count ?? 0)}
+      overdue={reason ? chrome.overdue : (email.count ?? 0) + (sms.count ?? 0)}
       lastProcessed={chrome.lastCronRun}
     >
       <header className={styles.pageHeader}>
         <div>
-          <h1 className={styles.pageTitle}>Overdue</h1>
+          <h1 className={styles.pageTitle}>Проблемни</h1>
           <p className={styles.pageSubtitle}>
             Late, stuck and failed email and SMS jobs. The worker can still recover pending jobs.
           </p>
         </div>
       </header>
 
+      <nav className={styles.actionGroup} aria-label="Problem filter">
+        {[['', 'Всички'], ['overdue', 'Overdue'], ['stuck', 'Stuck'], ['failed', 'Failed']].map(([value, label]) => (
+          <Link key={value} href={`/admin/overdue${value ? `?reason=${value}` : ''}`} className={styles.viewButton} aria-current={(reason ?? '') === value ? 'page' : undefined}>{label}</Link>
+        ))}
+      </nav>
       {flashError ? (
         <section className={styles.errorBanner}>{flashError}</section>
       ) : null}

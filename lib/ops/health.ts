@@ -208,21 +208,21 @@ export async function collectHealth(now = Date.now()): Promise<HealthSnapshot> {
   const [tenantRows, failedEmail, failedSms, stuckEmail, stuckSms, overdueEmail, overdueSms, bounced, meta, drainMeta] =
     await Promise.all([
       supabase.from("tenants").select("id, slug"),
-      supabase.from("email_jobs").select(emailCols).eq("status", "failed").eq("kind", "send")
+      supabase.from("email_jobs").select(emailCols).is("dismissed_at", null).eq("status", "failed").eq("kind", "send")
         .gte("updated_at", since).order("updated_at", { ascending: false }).limit(20),
-      supabase.from("sms_jobs").select(smsCols).eq("status", "failed")
+      supabase.from("sms_jobs").select(smsCols).is("dismissed_at", null).eq("status", "failed")
         .gte("updated_at", since).order("updated_at", { ascending: false }).limit(20),
       // Send jobs only: a campaign row is "processing" while its pockets work,
       // and a stuck pocket is reported on its own.
-      supabase.from("email_jobs").select(emailCols).eq("status", "processing").eq("kind", "send")
+      supabase.from("email_jobs").select(emailCols).is("dismissed_at", null).eq("status", "processing").eq("kind", "send")
         .lt("updated_at", stuckBefore).limit(20),
-      supabase.from("sms_jobs").select(smsCols).eq("status", "processing").lt("updated_at", stuckBefore).limit(20),
-      supabase.from("email_jobs").select(emailCols).eq("status", "pending").eq("kind", "send")
+      supabase.from("sms_jobs").select(smsCols).is("dismissed_at", null).eq("status", "processing").lt("updated_at", stuckBefore).limit(20),
+      supabase.from("email_jobs").select(emailCols).is("dismissed_at", null).eq("status", "pending").eq("kind", "send")
         .lt("send_at", overdueBefore).lt("updated_at", overdueBefore).limit(50),
-      supabase.from("sms_jobs").select(smsCols).eq("status", "pending")
+      supabase.from("sms_jobs").select(smsCols).is("dismissed_at", null).eq("status", "pending")
         .lt("send_at", overdueBefore).lt("updated_at", overdueBefore).limit(20),
       supabase.from("email_deliveries")
-        .select("job_id, tenant_id, status, error, opened_at, clicked_at, complained_at")
+        .select("job_id, tenant_id, status, error, opened_at, clicked_at, complained_at, email_jobs!inner(dismissed_at)").is("email_jobs.dismissed_at", null)
         .in("status", ["bounced", "failed"]).gte("updated_at", since).limit(2000),
       supabase.from("worker_meta").select("value").eq("key", "last_cron_run_at").maybeSingle(),
       supabase.from("worker_meta").select("value").eq("key", LAST_DRAIN_KEY).maybeSingle(),

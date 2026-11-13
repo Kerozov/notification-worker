@@ -41,9 +41,11 @@ function smsIssues(now: number, countOnly = false) {
     .or(`and(status.eq.pending,send_at.lte.${due}),and(status.eq.processing,updated_at.lte.${stuck}),status.eq.failed`);
 }
 
-export async function fetchOverdueEmailJobs<TRow extends { id: string }>(now: number) {
-  const issues = await emailIssues(now)
-    .order("priority").order("sort_at").order("id").limit(OVERDUE_LIMIT);
+export async function fetchOverdueEmailJobs<TRow extends { id: string }>(now: number, reason?: OverdueReason, page = 1) {
+  let query = emailIssues(now);
+  if (reason) query = query.eq("reason", reason);
+  const issues = await query
+    .order("priority").order("sort_at").order("id").range((page - 1) * OVERDUE_LIMIT, page * OVERDUE_LIMIT - 1);
   if (issues.error) {
     return { rows: [], count: null, error: issues.error.message };
   }
@@ -65,9 +67,11 @@ export async function fetchOverdueEmailJobs<TRow extends { id: string }>(now: nu
   return { rows, count: issues.count, error: null };
 }
 
-export async function fetchOverdueSmsJobs<TRow extends { status: string }>(now: number) {
-  const { data, error, count } = await smsIssues(now)
-    .order("updated_at", { ascending: false }).order("id").limit(OVERDUE_LIMIT);
+export async function fetchOverdueSmsJobs<TRow extends { status: string }>(now: number, reason?: OverdueReason, page = 1) {
+  let query = smsIssues(now);
+  if (reason) query = query.eq("status", reason === "overdue" ? "pending" : reason === "stuck" ? "processing" : "failed");
+  const { data, error, count } = await query
+    .order("updated_at", { ascending: false }).order("id").range((page - 1) * OVERDUE_LIMIT, page * OVERDUE_LIMIT - 1);
   const rows = ((data ?? []) as unknown as TRow[]).map((row) => {
     const reason: OverdueReason = row.status === "failed" ? "failed"
       : row.status === "processing" ? "stuck" : "overdue";
@@ -81,19 +85,19 @@ export async function countOverdueJobs(now = Date.now()): Promise<number> {
   return (email.count ?? 0) + (sms.count ?? 0);
 }
 
-/** Dismiss a failure or a still-stuck job. Leave its sending state alone. */
+/** Acknowledge a failed, overdue or stuck notification. Leave its sending state alone. */
 export async function dismissJob(
   table: JobTable,
   jobId: string,
 ): Promise<boolean> {
   const now = Date.now();
-  const { p_stuck_before: stuck } = cutoffs(now);
+  const { p_stuck_before: stuck, p_due_before: due } = cutoffs(now);
   const { data, error } = await getSupabaseAdmin()
     .from(table)
     .update({ dismissed_at: new Date(now).toISOString() })
     .eq("id", jobId)
     .is("dismissed_at", null)
-    .or(`status.eq.failed,and(status.eq.processing,updated_at.lte.${stuck})`)
+    .or(`status.eq.failed,and(status.eq.processing,updated_at.lte.${stuck}),and(status.eq.pending,send_at.lte.${due})`)
     .select("id")
     .maybeSingle();
   if (error) throw new Error(error.message);

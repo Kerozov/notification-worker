@@ -42,7 +42,7 @@ export function AdminNav({
     {
       id: "overdue",
       href: "/admin/overdue",
-      label: "Overdue",
+      label: "Проблемни",
       count: overdue,
     },
     { id: "clients", href: "/admin/clients", label: "Clients" },

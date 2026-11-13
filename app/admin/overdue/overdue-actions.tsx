@@ -118,6 +118,10 @@ export function OverdueEmailActions({
         busyLabel="Sending…"
         className={styles.sendNowButton}
       />
+
+      <ConfirmButton jobId={jobId} channel="email" action={dismissOverdueJob}
+        confirmText="Hide this notification? Sending remains active. Use Cancel to stop sending."
+        label="Dismiss" busyLabel="Dismissing…" className={styles.cancelButton} />
       {canCancel ? (
         <ConfirmButton
           jobId={jobId}
@@ -163,6 +167,10 @@ export function OverdueSmsActions({
           busyLabel="Canceling…"
           className={styles.cancelButton}
         />
+
+      <ConfirmButton jobId={jobId} channel="sms" action={dismissOverdueJob}
+        confirmText="Hide this notification? Sending remains active. Use Cancel to stop sending."
+        label="Dismiss" busyLabel="Dismissing…" className={styles.cancelButton} />
       </div>
     );
   }
