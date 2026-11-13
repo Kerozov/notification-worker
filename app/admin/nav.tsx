@@ -1,17 +1,19 @@
 import Link from "next/link";
 import styles from "./admin.module.css";
 
-export type AdminNavTab = "overview" | "email" | "sms" | "clients";
+export type AdminNavTab = "overview" | "email" | "sms" | "overdue" | "clients";
 
 export function AdminNav({
   active,
   emailPending = 0,
   smsPending = 0,
+  overdue = 0,
   q = "",
 }: {
   active: AdminNavTab;
   emailPending?: number;
   smsPending?: number;
+  overdue?: number;
   q?: string;
 }) {
   const search = q.trim()
@@ -36,6 +38,12 @@ export function AdminNav({
       href: `/admin?channel=sms${search}`,
       label: "SMS",
       count: smsPending,
+    },
+    {
+      id: "overdue",
+      href: "/admin/overdue",
+      label: "Overdue",
+      count: overdue,
     },
     { id: "clients", href: "/admin/clients", label: "Clients" },
   ];

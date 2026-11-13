@@ -309,6 +309,7 @@ export default async function AdminPage({
       tenant={jobFilters.tenant}
       emailPending={chrome.emailPending}
       smsPending={chrome.smsPending}
+      overdue={chrome.overdue}
       lastProcessed={chrome.lastCronRun}
     >
       {flashError ? (
