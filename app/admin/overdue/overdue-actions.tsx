@@ -7,6 +7,7 @@ import {
   cancelScheduledEmailJob,
   cancelScheduledSmsJob,
   dismissOverdueJob,
+  dismissOldFailedEmails,
   sendScheduledEmailJob,
   sendScheduledSmsJob,
 } from "../actions";
@@ -25,8 +26,8 @@ function ConfirmButton({
   busyLabel,
   className,
 }: {
-  jobId: string;
-  channel: "email" | "sms";
+  jobId?: string;
+  channel?: "email" | "sms";
   action: JobFormAction;
   confirmText: string;
   label: string;
@@ -44,13 +45,25 @@ function ConfirmButton({
         startTransition(() => action(formData));
       }}
     >
-      <input type="hidden" name="jobId" value={jobId} />
-      <input type="hidden" name="channel" value={channel} />
+      {jobId ? <input type="hidden" name="jobId" value={jobId} /> : null}
+      {channel ? <input type="hidden" name="channel" value={channel} /> : null}
       <input type="hidden" name="returnTo" value={RETURN_TO} />
       <button className={className} type="submit" disabled={pending}>
         {pending ? busyLabel : label}
       </button>
     </form>
+  );
+}
+
+export function DismissOldFailedEmailButton({ count, days }: { count: number; days: number }) {
+  return (
+    <ConfirmButton
+      action={dismissOldFailedEmails}
+      confirmText={`Hide ${count} email jobs last marked failed more than ${days} days ago? Their history will stay available.`}
+      label={`Dismiss old failed emails (${count})`}
+      busyLabel="Dismissing…"
+      className={styles.cancelButton}
+    />
   );
 }
 

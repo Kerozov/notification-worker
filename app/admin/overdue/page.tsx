@@ -4,6 +4,8 @@ import { redirect } from "next/navigation";
 import { hasAdminSession } from "@/lib/auth/admin";
 import { getAdminChrome } from "@/lib/admin/chrome";
 import {
+  countOldFailedEmailJobs,
+  FAILED_EMAIL_DISMISS_AGE_DAYS,
   fetchOverdueEmailJobs,
   fetchOverdueSmsJobs,
   type OverdueReason,
@@ -19,13 +21,14 @@ import {
 } from "../components";
 import { SectionBlock, type EmailJobRow, type SmsJobRow } from "../dashboard-ui";
 import { AdminShell } from "../shell";
-import { OverdueEmailActions, OverdueSmsActions } from "./overdue-actions";
+import { DismissOldFailedEmailButton, OverdueEmailActions, OverdueSmsActions } from "./overdue-actions";
 
 type SearchParams = Promise<{
   error?: string;
   sent?: string;
   canceled?: string;
   dismissed?: string;
+  bulkDismissed?: string;
 }>;
 
 const REASON_LABEL: Record<OverdueReason, string> = {
@@ -61,17 +64,20 @@ export default async function OverduePage({
   const flashError = params.error;
 
   const now = Date.now();
-  const [chrome, tenants, email, sms] = await Promise.all([
+  const [chrome, tenants, email, sms, oldFailedCount] = await Promise.all([
     getAdminChrome(false),
     listTenantsForAdmin().catch(() => []),
     fetchOverdueEmailJobs<EmailJobRow>(now),
     fetchOverdueSmsJobs<SmsJobRow>(now),
+    countOldFailedEmailJobs(now),
   ]);
   const tenantIdToSlug = new Map(tenants.map((t) => [t.id, t.slug]));
   const tenantLabel = (id: string) => tenantIdToSlug.get(id) ?? shortId(id);
 
-  const success =
-    params.sent === "email" || params.sent === "sms"
+  const bulkDismissed = Number.parseInt(params.bulkDismissed ?? "", 10);
+  const success = Number.isSafeInteger(bulkDismissed) && bulkDismissed >= 0
+    ? (bulkDismissed === 0 ? "No old failed email jobs to dismiss." : `Dismissed ${bulkDismissed} old failed email jobs.`)
+    : params.sent === "email" || params.sent === "sms"
       ? (params.sent === "email" ? "Email job started." : "SMS sent.")
       : params.canceled === "email" || params.canceled === "sms"
         ? `${params.canceled === "email" ? "Email" : "SMS"} canceled — it will not be sent.`
@@ -109,6 +115,9 @@ export default async function OverduePage({
         hint="Campaigns are grouped. Each row shows the next job to review."
         badge={`${email.count ?? email.rows.length}`}
         variant="email"
+        actions={oldFailedCount ? (
+          <DismissOldFailedEmailButton count={oldFailedCount} days={FAILED_EMAIL_DISMISS_AGE_DAYS} />
+        ) : null}
       >
         {email.error ? (
           <div className={styles.empty}>{email.error}</div>

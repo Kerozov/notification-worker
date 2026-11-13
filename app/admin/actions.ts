@@ -287,6 +287,22 @@ export async function dismissOverdueJob(formData: FormData): Promise<void> {
   );
 }
 
+export async function dismissOldFailedEmails(): Promise<void> {
+  await requireAdmin();
+
+  let count: number;
+  try {
+    const { dismissOldFailedEmailJobs } = await import("@/lib/admin/overdue");
+    count = await dismissOldFailedEmailJobs();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Could not dismiss old failed emails";
+    redirect(`/admin/overdue?${new URLSearchParams({ error: message })}`);
+  }
+
+  revalidatePath("/admin", "layout");
+  redirect(`/admin/overdue?bulkDismissed=${count}`);
+}
+
 export async function resendSameRecipients(formData: FormData): Promise<void> {
   await requireAdmin();
 
