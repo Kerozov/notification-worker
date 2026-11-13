@@ -32,6 +32,7 @@ export default async function AdminJobPage({
         channel="email"
         emailPending={chrome.emailPending}
         smsPending={chrome.smsPending}
+        overdue={chrome.overdue}
       >
         <div className={styles.report}>
           <nav className={styles.crumbs} aria-label="Breadcrumb">
@@ -68,6 +69,7 @@ export default async function AdminJobPage({
       q=""
       emailPending={chrome.emailPending}
       smsPending={chrome.smsPending}
+      overdue={chrome.overdue}
     >
       <CampaignReportView
         job={job}

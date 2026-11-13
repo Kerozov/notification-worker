@@ -254,6 +254,39 @@ export async function cancelScheduledSmsJob(formData: FormData): Promise<void> {
   }
 }
 
+/** Overdue screen: takes a failed / stuck job off the list without touching it. */
+export async function dismissOverdueJob(formData: FormData): Promise<void> {
+  await requireAdmin();
+
+  const jobId = String(formData.get("jobId") ?? "");
+  const channel = String(formData.get("channel") ?? "");
+
+  if (!jobId || (channel !== "email" && channel !== "sms")) {
+    adminRedirectFromForm(formData, { error: "missing-job" });
+  }
+
+  let errorMessage: string | null = null;
+
+  try {
+    const { dismissJob } = await import("@/lib/admin/overdue");
+    const done = await dismissJob(
+      channel === "sms" ? "sms_jobs" : "email_jobs",
+      jobId,
+    );
+    if (!done) {
+      errorMessage = "Job not found or no longer failed / stuck";
+    }
+  } catch (error) {
+    errorMessage = error instanceof Error ? error.message : "Dismiss failed";
+  }
+
+  revalidatePath("/admin/overdue");
+  adminRedirectFromForm(
+    formData,
+    errorMessage ? { error: errorMessage } : { dismissed: channel },
+  );
+}
+
 export async function resendSameRecipients(formData: FormData): Promise<void> {
   await requireAdmin();
 

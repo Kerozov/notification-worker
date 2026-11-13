@@ -13,6 +13,7 @@ export function AdminShell({
   tenant,
   emailPending = 0,
   smsPending = 0,
+  overdue = 0,
   lastProcessed,
   children,
 }: {
@@ -22,6 +23,7 @@ export function AdminShell({
   tenant?: string;
   emailPending?: number;
   smsPending?: number;
+  overdue?: number;
   lastProcessed?: string | null;
   children: ReactNode;
 }) {
@@ -36,6 +38,7 @@ export function AdminShell({
             active={active}
             emailPending={emailPending}
             smsPending={smsPending}
+            overdue={overdue}
             q={q}
           />
           <GlobalSearch q={q} channel={channel} tenant={tenant} />
