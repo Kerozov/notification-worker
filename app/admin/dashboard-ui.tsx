@@ -531,12 +531,14 @@ export function SectionBlock({
   title,
   hint,
   badge,
+  actions,
   children,
   variant,
 }: {
   title: string;
   hint?: string;
   badge?: string;
+  actions?: ReactNode;
   children: ReactNode;
   variant?: "email" | "sms" | "neutral";
 }) {
@@ -558,6 +560,7 @@ export function SectionBlock({
           </h2>
           {hint ? <p className={styles.sectionHint}>{hint}</p> : null}
         </div>
+        {actions}
       </div>
       {children}
     </section>

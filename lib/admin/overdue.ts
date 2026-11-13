@@ -4,6 +4,8 @@ import { DEAD_STEP_MS } from "@/lib/jobs/campaign";
 
 const OVERDUE_GRACE_MS = 10 * 60_000;
 const OVERDUE_LIMIT = 100;
+export const FAILED_EMAIL_DISMISS_AGE_DAYS = 30;
+const DAY_MS = 24 * 60 * 60_000;
 
 export type OverdueReason = "overdue" | "stuck" | "failed";
 
@@ -96,4 +98,28 @@ export async function dismissJob(
     .maybeSingle();
   if (error) throw new Error(error.message);
   return Boolean(data);
+}
+
+function oldFailedEmails(now: number) {
+  const cutoff = new Date(now - FAILED_EMAIL_DISMISS_AGE_DAYS * DAY_MS).toISOString();
+  const table = getSupabaseAdmin().from("email_jobs");
+  return {
+    count: () => table.select("id", { head: true, count: "exact" })
+      .eq("kind", "send").eq("status", "failed").is("dismissed_at", null)
+      .lt("updated_at", cutoff),
+    dismiss: () => table.update({ dismissed_at: new Date(now).toISOString() }, { count: "exact" })
+      .eq("kind", "send").eq("status", "failed").is("dismissed_at", null)
+      .lt("updated_at", cutoff),
+  };
+}
+
+export async function countOldFailedEmailJobs(now: number): Promise<number | null> {
+  const { count, error } = await oldFailedEmails(now).count();
+  return error ? null : count;
+}
+
+export async function dismissOldFailedEmailJobs(): Promise<number> {
+  const { count, error } = await oldFailedEmails(Date.now()).dismiss();
+  if (error) throw new Error(error.message);
+  return count ?? 0;
 }
