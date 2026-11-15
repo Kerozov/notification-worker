@@ -290,6 +290,40 @@ export async function fetchFilteredEmailJobs<TRow>(
   };
 }
 
+/** The bulk cancel reads at most this many — a search, not a purge. */
+export const SEARCH_CANCEL_MAX = 5000;
+
+/**
+ * Ids of the pending email jobs a search shows, on every page of it — what
+ * „Cancel all pending in this search“ cancels. Same filters as the list, so the
+ * button never reaches a job the owner did not see counted next to it.
+ * Refuses an empty search: that would be every pending job of every client.
+ */
+export async function findPendingEmailJobIds(
+  filters: JobListFilters,
+  tenantId: string | null,
+): Promise<{ ids: string[]; truncated: boolean; error: string | null }> {
+  if (!filters.q.trim()) return { ids: [], truncated: false, error: "Search first" };
+  const supabase = getSupabaseAdmin();
+  const pendingOnly = { ...filters, status: "pending" };
+  const ids: string[] = [];
+  const PAGE = 1000;
+
+  for (let from = 0; from < SEARCH_CANCEL_MAX; from += PAGE) {
+    let query = supabase.from("email_jobs").select("id");
+    query = applyEmailFilters(query, pendingOnly, tenantId);
+    const { data, error } = await query
+      .order("created_at", { ascending: true })
+      .range(from, Math.min(from + PAGE, SEARCH_CANCEL_MAX) - 1);
+    if (error) return { ids, truncated: false, error: error.message };
+    const rows = (data ?? []) as { id: string }[];
+    ids.push(...rows.map((row) => row.id));
+    if (rows.length < PAGE) return { ids, truncated: false, error: null };
+  }
+
+  return { ids, truncated: true, error: null };
+}
+
 export async function fetchFilteredSmsJobs<TRow>(
   filters: JobListFilters,
   tenantId: string | null,

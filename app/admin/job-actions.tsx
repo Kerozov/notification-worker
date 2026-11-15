@@ -12,6 +12,7 @@ import { createPortal } from "react-dom";
 import Link from "next/link";
 import styles from "./admin.module.css";
 import {
+  cancelPendingEmailSearch,
   cancelScheduledEmailJob,
   cancelScheduledSmsJob,
   sendScheduledEmailJob,
@@ -281,6 +282,53 @@ function ScheduledJobButtons({
         </button>
       </form>
     </>
+  );
+}
+
+/**
+ * Cancels every pending email job the current search finds — all pages, not
+ * just the rows on screen. Shown only for a search, with the count it will
+ * cancel in the button and again in the confirm.
+ */
+export function CancelSearchButton({
+  count,
+  q,
+  tenant,
+  period,
+  returnQuery,
+}: {
+  count: number;
+  q: string;
+  tenant: string;
+  period: string;
+  returnQuery: string;
+}) {
+  const [pending, startTransition] = useTransition();
+  if (count <= 0 || !q.trim()) return null;
+  const label = `${count.toLocaleString("bg-BG")} pending email job${count === 1 ? "" : "s"}`;
+
+  return (
+    <form
+      action={(formData) => {
+        if (
+          !window.confirm(
+            `Cancel ${label} matching „${q}“? They will not be sent. This cannot be undone.`,
+          )
+        ) {
+          return;
+        }
+        startTransition(() => cancelPendingEmailSearch(formData));
+      }}
+    >
+      <input type="hidden" name="q" value={q} />
+      <input type="hidden" name="tenant" value={tenant} />
+      <input type="hidden" name="period" value={period} />
+      <input type="hidden" name="channel" value="email" />
+      <input type="hidden" name="returnQuery" value={returnQuery} />
+      <button className={styles.cancelButton} type="submit" disabled={pending}>
+        {pending ? "Canceling…" : `Cancel all ${label} in this search`}
+      </button>
+    </form>
   );
 }
 

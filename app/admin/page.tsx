@@ -30,11 +30,14 @@ import {
   type TenantRow,
 } from "./dashboard-ui";
 import { AdminLogin, AdminShell } from "./shell";
+import { CancelSearchButton } from "./job-actions";
 
 type SearchParams = Promise<{
   secret?: string;
   error?: string;
   canceled?: string;
+  bulkCanceled?: string;
+  bulkMore?: string;
   sent?: string;
   channel?: string;
   status?: string;
@@ -126,6 +129,7 @@ export default async function AdminPage({
   const jobFilters = parseJobListFilters(params);
   const flashError = params.error ? decodeURIComponent(params.error) : null;
   const canceled = params.canceled;
+  const bulkCanceled = params.bulkCanceled;
   const sent = params.sent;
   const returnQuery = buildReturnQuery(params);
   const isSearch = Boolean(jobFilters.q);
@@ -326,6 +330,14 @@ export default async function AdminPage({
         </section>
       ) : null}
 
+      {bulkCanceled !== undefined ? (
+        <section className={styles.successBanner}>
+          {Number(bulkCanceled).toLocaleString("bg-BG")} pending email job
+          {bulkCanceled === "1" ? "" : "s"} canceled.
+          {params.bulkMore ? " More match this search — press the button again." : ""}
+        </section>
+      ) : null}
+
       {sent === "email" || sent === "sms" ? (
         <section className={styles.successBanner}>
           {sent === "email" ? "Email" : "SMS"} sent immediately.
@@ -351,6 +363,13 @@ export default async function AdminPage({
             hint={`Search · ${jobFilters.q}`}
             variant="email"
           >
+            <CancelSearchButton
+              count={(emailList?.statusCounts.find((row) => row.status === "pending")?.count ?? 0)}
+              q={jobFilters.q}
+              tenant={jobFilters.tenant}
+              period={jobFilters.period}
+              returnQuery={returnQuery}
+            />
             {emailList?.error ? (
               <div className={styles.empty}>{emailList.error}</div>
             ) : (
@@ -431,6 +450,13 @@ export default async function AdminPage({
             filters={jobFilters}
             statusCounts={emailList.statusCounts}
             total={emailList.total}
+          />
+          <CancelSearchButton
+            count={(emailList?.statusCounts.find((row) => row.status === "pending")?.count ?? 0)}
+            q={jobFilters.q}
+            tenant={jobFilters.tenant}
+            period={jobFilters.period}
+            returnQuery={returnQuery}
           />
           {emailList.error ? (
             <div className={styles.empty}>{emailList.error}</div>

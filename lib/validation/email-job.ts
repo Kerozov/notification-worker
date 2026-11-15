@@ -167,12 +167,23 @@ export const updateJobsContentBodySchema = z.object({
     .max(MAX_CONTENT_UPDATES),
 });
 
+/**
+ * Move scheduled jobs to one new time — an automation „на конкретна дата“ is
+ * one moment for everybody, so one `sendAt` for the whole batch. Only ids and
+ * the time: nothing about who gets it or what it says changes here.
+ */
+export const rescheduleJobsBodySchema = z.object({
+  jobIds: z.array(z.string().min(1).max(80)).min(1).max(MAX_CONTENT_UPDATES),
+  sendAt: z.string().min(1),
+});
+
 export type SendJobBody = z.infer<typeof sendJobBodySchema>;
 export type ScheduleJobBody = z.infer<typeof scheduleJobBodySchema>;
 export type BatchJobsBody = z.infer<typeof batchJobsBodySchema>;
 export type CancelJobsBody = z.infer<typeof cancelJobsBodySchema>;
 export type RemoveRecipientsBody = z.infer<typeof removeRecipientsBodySchema>;
 export type UpdateJobsContentBody = z.infer<typeof updateJobsContentBodySchema>;
+export type RescheduleJobsBody = z.infer<typeof rescheduleJobsBodySchema>;
 
 const EMAIL_REGEX =
   /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;

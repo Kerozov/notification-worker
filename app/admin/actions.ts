@@ -3,6 +3,8 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { hasAdminSession } from "@/lib/auth/admin";
+import { findPendingEmailJobIds, parseJobListFilters } from "@/lib/admin/job-query";
+import { getSupabaseAdmin } from "@/lib/db/supabase";
 import { cancelPendingJobById } from "@/lib/jobs/process";
 import { cancelPendingSmsJobById } from "@/lib/jobs/process-sms";
 import { resendJobAsNew } from "@/lib/jobs/resend";
@@ -215,6 +217,62 @@ export async function cancelScheduledEmailJob(formData: FormData): Promise<void>
     revalidatePath("/admin");
     adminRedirectFromForm(formData, { canceled: "email" });
   }
+}
+
+/**
+ * „Cancel all pending in this search“ — every pending email job the search
+ * finds, on every page. Paste an automation key (`auto-<id>`) and its waiting
+ * emails go in one click instead of one Cancel per row.
+ */
+export async function cancelPendingEmailSearch(formData: FormData): Promise<void> {
+  await requireAdmin();
+
+  const filters = parseJobListFilters({
+    q: String(formData.get("q") ?? ""),
+    tenant: String(formData.get("tenant") ?? ""),
+    period: String(formData.get("period") ?? ""),
+  });
+  if (!filters.q) {
+    adminRedirectFromForm(formData, { error: "Search first — this cancels what a search finds" });
+  }
+
+  let tenantId: string | null = null;
+  if (filters.tenant !== "all") {
+    const { data } = await getSupabaseAdmin()
+      .from("tenants")
+      .select("id")
+      .eq("slug", filters.tenant)
+      .maybeSingle();
+    if (!data) adminRedirectFromForm(formData, { error: `Unknown client ${filters.tenant}` });
+    tenantId = (data as { id: string }).id;
+  }
+
+  const found = await findPendingEmailJobIds(filters, tenantId);
+  if (found.error) adminRedirectFromForm(formData, { error: found.error });
+
+  let canceled = 0;
+  let failed = 0;
+  let cursor = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(6, found.ids.length) }, async () => {
+      while (cursor < found.ids.length) {
+        const jobId = found.ids[cursor++];
+        try {
+          if (await cancelPendingJobById(jobId)) canceled += 1;
+        } catch (error) {
+          failed += 1;
+          console.error(`cancelPendingEmailSearch ${jobId}:`, error);
+        }
+      }
+    }),
+  );
+
+  revalidatePath("/admin", "layout");
+  adminRedirectFromForm(formData, {
+    bulkCanceled: String(canceled),
+    ...(failed > 0 ? { error: `${failed} could not be canceled — try again` } : {}),
+    ...(found.truncated ? { bulkMore: "1" } : {}),
+  });
 }
 
 export async function cancelScheduledSmsJob(formData: FormData): Promise<void> {
