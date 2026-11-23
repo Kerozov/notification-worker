@@ -10,6 +10,7 @@ import {
   getDeliveriesForJobs,
   insertPendingDeliveries,
   markDeliveriesCanceled,
+  movePendingDelivery,
 } from "@/lib/deliveries/store";
 import { getJobById } from "@/lib/jobs/query";
 import {
@@ -18,6 +19,7 @@ import {
   SEND_CHUNK_SIZE,
   type EmailAttachment,
   type JobMerge,
+  type RecipientMerge,
 } from "@/lib/validation/email-job";
 
 export function isCampaignJob(job: { kind?: string | null }): boolean {
@@ -890,6 +892,179 @@ export async function removeRecipientsFromJob(
   }
 
   return updated;
+}
+
+/** The list with one address swapped in place — never twice in the list. */
+export function swapRecipient(list: string[], fromRaw: string, toRaw: string): string[] {
+  const from = normalizeRecipient(fromRaw);
+  const to = normalizeRecipient(toRaw);
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const email of list) {
+    const value = normalizeRecipient(email) === from ? to : email;
+    const key = normalizeRecipient(value);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(value);
+  }
+  return out;
+}
+
+/**
+ * Merge fields move to the new address. The caller's `fields` win: they hold
+ * `{{email}}` and the unsubscribe link built for the new address. Without
+ * them the old entry moves over with its `email` field corrected.
+ */
+export function swapMerge(
+  merge: JobMerge,
+  fromRaw: string,
+  toRaw: string,
+  fields?: RecipientMerge,
+): JobMerge {
+  const from = normalizeRecipient(fromRaw);
+  const to = normalizeRecipient(toRaw);
+  const next: JobMerge = { ...merge };
+  const old = next[from];
+  delete next[from];
+  const entry =
+    fields && Object.keys(fields).length > 0
+      ? fields
+      : old
+        ? { ...old, ...("email" in old ? { email: to } : {}) }
+        : null;
+  if (!entry) return next;
+  const parsed = parseJobMerge({ [to]: entry })[to];
+  if (parsed) next[to] = parsed;
+  return next;
+}
+
+export type ReplaceRecipientOutcome =
+  | "replaced"
+  | "unchanged"
+  /** The address is not in this job. */
+  | "not_in_job"
+  /** Its part of the job is sending or done — the old address keeps it. */
+  | "not_pending";
+
+/** Swap on one unsent send row; `null` when it was claimed in between. */
+async function patchSwappedRecipient(
+  job: EmailJob,
+  from: string,
+  to: string,
+  fields?: RecipientMerge,
+): Promise<EmailJob | null> {
+  const supabase = getSupabaseAdmin();
+  const patch = {
+    recipients: swapRecipient(job.recipients, from, to),
+    updated_at: new Date().toISOString(),
+  };
+  const guarded = <T extends { eq: (column: string, value: unknown) => T }>(query: T) =>
+    query.eq("id", job.id).eq("status", "pending").eq("sent_count", 0);
+
+  let { data, error } = await guarded(
+    supabase
+      .from("email_jobs")
+      .update({ ...patch, merge: swapMerge(job.merge, from, to, fields) }),
+  )
+    .select("*")
+    .maybeSingle();
+
+  if (error && isMissingMergeColumn(error)) {
+    ({ data, error } = await guarded(supabase.from("email_jobs").update(patch))
+      .select("*")
+      .maybeSingle());
+  }
+  if (error) {
+    throw new Error(error.message);
+  }
+  if (!data) return null;
+
+  const updated = asEmailJob(data);
+  await movePendingDelivery(updated.id, updated.tenant_id, from, to);
+  return updated;
+}
+
+/** Parent list of a campaign follows its pocket. Not guarded: it is never claimed. */
+async function patchParentRecipient(
+  parent: EmailJob,
+  from: string,
+  to: string,
+  fields?: RecipientMerge,
+): Promise<EmailJob | null> {
+  const supabase = getSupabaseAdmin();
+  const patch = {
+    recipients: swapRecipient(parent.recipients, from, to),
+    updated_at: new Date().toISOString(),
+  };
+  const { error } = await supabase
+    .from("email_jobs")
+    .update({ ...patch, merge: swapMerge(parent.merge, from, to, fields) })
+    .eq("id", parent.id);
+  if (error && isMissingMergeColumn(error)) {
+    await supabase.from("email_jobs").update(patch).eq("id", parent.id);
+  } else if (error) {
+    throw new Error(error.message);
+  }
+  return refreshCampaignParent(parent.id);
+}
+
+/**
+ * One address of a pending job becomes another, everything else untouched:
+ * the person keeps their place in the queue, their send time and their
+ * merge fields. A campaign is one job for its whole audience, so cancelling
+ * and re-creating it for one changed address is not an option.
+ */
+export async function replaceRecipientInJob(
+  tenantId: string,
+  jobId: string,
+  fromRaw: string,
+  toRaw: string,
+  fields?: RecipientMerge,
+): Promise<{ job: EmailJob; outcome: ReplaceRecipientOutcome } | null> {
+  const from = normalizeRecipient(fromRaw);
+  const to = normalizeRecipient(toRaw);
+
+  const supabase = getSupabaseAdmin();
+  const { data: row, error: readError } = await supabase
+    .from("email_jobs")
+    .select("*")
+    .eq("id", jobId)
+    .eq("tenant_id", tenantId)
+    .maybeSingle();
+  if (readError) {
+    throw new Error(readError.message);
+  }
+  if (!row) return null;
+
+  const job = asEmailJob(row);
+  if (from === to) return { job, outcome: "unchanged" };
+  const hasFrom = (list: string[]) => list.some((email) => normalizeRecipient(email) === from);
+
+  if (isCampaignJob(job)) {
+    if (job.status !== "pending" && job.status !== "processing") {
+      return { job, outcome: "not_pending" };
+    }
+    if (!hasFrom(job.recipients)) return { job, outcome: "not_in_job" };
+
+    const children = await listChildJobs(job.id);
+    const pocket = children.find((child) => hasFrom(child.recipients));
+    // No pocket yet: the next heal builds it from the parent list.
+    if (pocket && !(await patchSwappedRecipient(pocket, from, to, fields))) {
+      return { job, outcome: "not_pending" };
+    }
+    const refreshed = await patchParentRecipient(job, from, to, fields);
+    return { job: refreshed ?? job, outcome: "replaced" };
+  }
+
+  if (!hasFrom(job.recipients)) return { job, outcome: "not_in_job" };
+  const updated = await patchSwappedRecipient(job, from, to, fields);
+  if (!updated) return { job, outcome: "not_pending" };
+
+  if (job.parent_id) {
+    const parent = await getJobById(job.parent_id);
+    if (parent) await patchParentRecipient(parent, from, to, fields);
+  }
+  return { job: updated, outcome: "replaced" };
 }
 
 export async function getDeliveriesForEmailJob(job: EmailJob) {

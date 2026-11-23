@@ -615,6 +615,71 @@ export async function markDeliveriesCanceled(
   }
 }
 
+/**
+ * A pending address of a job becomes another one (the person changed their
+ * email). The row is renamed, so the report shows one person, not a removal
+ * plus a stranger. A job that has rows sends only its pending rows
+ * (`getSendQueue`), so the new address must end up with one.
+ */
+export async function movePendingDelivery(
+  jobId: string,
+  tenantId: string,
+  fromRaw: string,
+  toRaw: string,
+): Promise<void> {
+  const from = normalizeEmail(fromRaw);
+  const to = normalizeEmail(toRaw);
+  if (!from || !to || from === to) return;
+
+  const supabase = getSupabaseAdmin();
+  const { data, error } = await supabase
+    .from("email_deliveries")
+    .select("recipient, status")
+    .eq("job_id", jobId)
+    .in("recipient", [from, to]);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  const rows = (data ?? []) as Array<{ recipient: string; status: DeliveryStatus }>;
+  const old = rows.find((row) => row.recipient === from);
+  const target = rows.find((row) => row.recipient === to);
+
+  if (target) {
+    // The new address is already in this job: drop the old one.
+    if (old?.status === "pending") await markDeliveriesCanceled(jobId, [from]);
+    return;
+  }
+
+  if (old) {
+    if (old.status !== "pending") return;
+    const { error: updateError } = await supabase
+      .from("email_deliveries")
+      .update({ recipient: to, updated_at: new Date().toISOString() })
+      .eq("job_id", jobId)
+      .eq("recipient", from)
+      .eq("status", "pending");
+    if (updateError) {
+      throw new Error(updateError.message);
+    }
+    return;
+  }
+
+  // Without any rows the job sends its own recipient list, which already
+  // carries the new address — a single row here would hide everyone else.
+  const { count, error: countError } = await supabase
+    .from("email_deliveries")
+    .select("id", { count: "exact", head: true })
+    .eq("job_id", jobId);
+  if (countError) {
+    throw new Error(countError.message);
+  }
+  if ((count ?? 0) > 0) {
+    await insertPendingDeliveries(jobId, tenantId, [to]);
+  }
+}
+
 export async function getDeliveriesForJob(
   jobId: string,
   tenantId: string,

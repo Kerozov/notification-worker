@@ -143,6 +143,17 @@ export const removeRecipientsBodySchema = z.object({
 });
 
 /**
+ * One address of a pending job changes (the person fixed their email).
+ * `merge` is the new address's own merge fields — a campaign's HTML carries
+ * `{{email}}` and an unsubscribe link built for the address.
+ */
+export const replaceRecipientBodySchema = z.object({
+  from: z.string().trim().min(3).max(320),
+  to: z.string().trim().min(3).max(320),
+  merge: z.record(z.string(), z.string()).optional(),
+});
+
+/**
  * How many pending jobs one content update may touch. Automations are one job
  * per person, so a rewritten drip is hundreds of these and the caller batches.
  * Per-person HTML is ~20KB — a hundred stays well under the request body cap.
@@ -182,6 +193,7 @@ export type ScheduleJobBody = z.infer<typeof scheduleJobBodySchema>;
 export type BatchJobsBody = z.infer<typeof batchJobsBodySchema>;
 export type CancelJobsBody = z.infer<typeof cancelJobsBodySchema>;
 export type RemoveRecipientsBody = z.infer<typeof removeRecipientsBodySchema>;
+export type ReplaceRecipientBody = z.infer<typeof replaceRecipientBodySchema>;
 export type UpdateJobsContentBody = z.infer<typeof updateJobsContentBodySchema>;
 export type RescheduleJobsBody = z.infer<typeof rescheduleJobsBodySchema>;
 

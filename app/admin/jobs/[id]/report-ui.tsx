@@ -258,7 +258,9 @@ export function Funnel({ report }: { report: CampaignReport }) {
   const stages = [
     { label: "Recipients", value: report.recipients, note: null },
     { label: "Sent", value: report.sent, note: formatRate(report.rates.sent) },
-    { label: "Delivered", value: report.delivered, note: formatRate(report.rates.delivered) },
+    // Not "Delivered": ZeptoMail sends no delivery receipts here, so this is
+    // mostly opens and clicks. Sent already leaves out bounces.
+    { label: "Confirmed", value: report.delivered, note: formatRate(report.rates.delivered) },
     { label: "Opened", value: report.opened, note: formatRate(report.rates.open) },
     { label: "Clicked", value: report.clicked, note: formatRate(report.rates.click) },
   ];
@@ -282,8 +284,9 @@ export function Funnel({ report }: { report: CampaignReport }) {
         ))}
       </ol>
       <p className={styles.funnelNote}>
-        Sent is the share of recipients; the rest are shares of sent. Delivered counts a
-        delivery, open, click or spam report from ZeptoMail.
+        Sent is the share of recipients; the rest are shares of sent. Sent leaves out
+        bounces, so it is what reached the inbox server. Confirmed counts a delivery
+        receipt, open, click or spam report from ZeptoMail.
         {report.clickedWithoutOpen > 0
           ? ` ${fmt(report.clickedWithoutOpen)} clicked with images off, so their open was never tracked.`
           : ""}
