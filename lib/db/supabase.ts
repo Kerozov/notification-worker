@@ -17,6 +17,10 @@ export type Tenant = {
   notifier_api_key: string | null;
   /** Missing before migration 013 — read as false. */
   can_act_for_tenants?: boolean | null;
+  /** Webinar registrations go to Notifier. Missing before migration 020 — off. */
+  notifier_webinars?: boolean | null;
+  /** The Notifier webinar used when the caller names none. */
+  notifier_webinar_id?: string | null;
   created_at: string;
   /**
    * Set only on the tenant a request resolved to through an extra key

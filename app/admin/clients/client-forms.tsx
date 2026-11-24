@@ -56,6 +56,8 @@ export function ClientForm({
     defaultSmsSender?: string | null;
     notifierConfigured?: boolean;
     canActForTenants?: boolean;
+    notifierWebinars?: boolean;
+    notifierWebinarId?: string | null;
   };
 }) {
   const action = mode === "create" ? createClientAction : updateClientAction;
@@ -163,6 +165,36 @@ export function ClientForm({
               Platform key: may send SMS as any other client (X-Act-As-Tenant)
             </span>
           </label>
+        ) : null}
+
+        {mode === "edit" ? (
+          <>
+            <label className={`${styles.formField} ${styles.formFieldWide}`}>
+              <input type="hidden" name="notifierWebinarsField" value="1" />
+              <span className={styles.formCheckbox}>
+                <input
+                  type="checkbox"
+                  name="notifierWebinars"
+                  defaultChecked={Boolean(defaults?.notifierWebinars)}
+                />
+                Webinars through Notifier: signups go to Notifier, which sends
+                the reminders and tracks who joined Zoom
+              </span>
+            </label>
+            <label className={`${styles.formField} ${styles.formFieldWide}`}>
+              <span className={styles.formLabel}>Default Notifier webinar</span>
+              <input
+                className={styles.formInput}
+                name="notifierWebinarId"
+                defaultValue={defaults?.notifierWebinarId ?? ""}
+                placeholder="xi52mkgrtq3rxz1r9xxkvb65 or https://notifierbg.com/api/v1/webinars/…/registrants"
+              />
+              <span className={styles.formHint}>
+                Notifier → Webinars → Add leads → API. Used when the site does
+                not name a webinar. Not the join link.
+              </span>
+            </label>
+          </>
         ) : null}
       </div>
 
