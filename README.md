@@ -237,9 +237,11 @@ Authorization: Bearer <client key>        # or the platform key + X-Act-As-Tenan
 { "webinarId": "xi52mkgrtq3rxz1r9xxkvb65", "name": "…", "phone": "+359…", "email": "…" }
 ```
 
-Every webinar has its own id, so the page names it; without `webinarId` the
-client's default is used. A join link (`/join/<code>`) is not an id and is
-refused. Off for the client → 409; no Notifier key → 412; already registered at
+Every webinar has its own id, so the page names it, and a named webinar goes
+through whether or not the switch is on: the client's Notifier subscription
+accepts or refuses it. Without `webinarId` the client's default is used, and
+only with the switch on (otherwise 409). A join link (`/join/<code>`) is not an
+id and is refused. No Notifier key → 412; already registered at
 Notifier → `{ ok: true, duplicate: true }`. `GET /api/v1/webinars/config` says
 whether the method is on and which webinar is the default.
 

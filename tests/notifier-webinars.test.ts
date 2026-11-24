@@ -110,11 +110,18 @@ describe("addNotifierWebinarRegistrant", () => {
 });
 
 describe("registerForTenantWebinar", () => {
-  test("refuses while the client has Notifier webinars off", async () => {
+  test("without the switch the default webinar is not used", async () => {
     current = tenant({ notifier_webinars: false, notifier_webinar_id: "abc12345" });
     const res = await post({ email: "a@b.co" });
     expect(res.status).toBe(409);
     expect(calls.length).toBe(0);
+  });
+
+  test("a named webinar goes through without the switch — Notifier decides", async () => {
+    current = tenant({ notifier_webinars: false, notifier_webinar_id: null });
+    const res = await post({ webinarId: "zzz98765", email: "a@b.co" });
+    expect(res.status).toBe(200);
+    expect(calls[0].url).toContain("/webinars/zzz98765/registrants");
   });
 
   test("uses the client's default webinar when none is named", async () => {
