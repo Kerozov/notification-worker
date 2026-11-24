@@ -1,5 +1,6 @@
 import type { Tenant } from "@/lib/db/supabase";
 import { formatNotifierError } from "@/lib/sms/notifier";
+import { normalizePhoneToE164 } from "@/lib/validation/sms-job";
 import type { WebinarRegistrationRecord } from "@/lib/sms/webinar-history";
 
 /**
@@ -55,11 +56,15 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export function readWebinarRegistrant(
   body: Record<string, unknown>,
 ): { ok: true; registrant: WebinarRegistrant } | { ok: false; error: string } {
-  const email = clean(body.email, 254)?.toLowerCase() ?? null;
-  const phone = clean(body.phone, 32);
+  const rawEmail = clean(body.email, 254)?.toLowerCase() ?? null;
+  const rawPhone = clean(body.phone, 32);
   const name = clean(body.name, 200);
+  // Notifier refuses the whole person for one bad field. A phone we can't read
+  // or a broken email is dropped when the other one still reaches them.
+  const phone = rawPhone ? normalizePhoneToE164(rawPhone) : null;
+  const email = rawEmail && EMAIL_RE.test(rawEmail) ? rawEmail : null;
 
-  if (email && !EMAIL_RE.test(email)) {
+  if (rawEmail && !email && !phone) {
     return { ok: false, error: "email is not a valid address" };
   }
 
@@ -85,11 +90,49 @@ export async function addNotifierWebinarRegistrant(
   webinarId: string,
   registrant: WebinarRegistrant,
 ): Promise<RegistrantOutcome> {
-  const payload: Record<string, string> = {};
-  if (registrant.name) payload.name = registrant.name;
-  if (registrant.phone) payload.phone = registrant.phone;
-  if (registrant.email) payload.email = registrant.email;
+  // Notifier refuses the whole person over one field it doesn't like ("Input
+  // validation failed"). Each fallback keeps a way to reach them: without the
+  // phone, then the email alone, then the phone alone.
+  const candidates = webinarPayloads(registrant);
+  let last: RegistrantOutcome = { ok: false, status: 502, error: "Notifier did not answer" };
+  for (const payload of candidates) {
+    last = await postRegistrant(apiKey, webinarId, payload);
+    if (last.ok || !isValidationRefusal(last.status)) return last;
+  }
+  return last;
+}
 
+const isValidationRefusal = (status: number) => status === 400 || status === 422;
+
+/** The full person first, then smaller versions that still reach them. */
+export function webinarPayloads(registrant: WebinarRegistrant): Record<string, string>[] {
+  const build = (fields: Partial<WebinarRegistrant>) => {
+    const payload: Record<string, string> = {};
+    if (fields.name) payload.name = fields.name;
+    if (fields.phone) payload.phone = fields.phone;
+    if (fields.email) payload.email = fields.email;
+    return payload;
+  };
+  const all = [
+    build(registrant),
+    build({ name: registrant.name, email: registrant.email }),
+    build({ email: registrant.email }),
+    build({ phone: registrant.phone }),
+  ].filter((payload) => payload.email || payload.phone);
+  const seen = new Set<string>();
+  return all.filter((payload) => {
+    const key = JSON.stringify(payload);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+async function postRegistrant(
+  apiKey: string,
+  webinarId: string,
+  payload: Record<string, string>,
+): Promise<RegistrantOutcome> {
   let last: RegistrantOutcome = {
     ok: false,
     status: 502,

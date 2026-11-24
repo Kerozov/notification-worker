@@ -163,7 +163,7 @@ describe("webinar history", () => {
     reply = () => Response.json({ error: "exists" }, { status: 409 });
     await registerForTenantWebinar(t, { email: "a@b.co" }, "nk", record);
     reply = () => Response.json({ error: "bad phone" }, { status: 422 });
-    await registerForTenantWebinar(t, { phone: "1" }, "nk", record);
+    await registerForTenantWebinar(t, { phone: "0888123456" }, "nk", record);
     await registerForTenantWebinar(t, { email: "c@d.co" }, null, record);
 
     expect(rows.map((r) => r.status)).toEqual(["added", "duplicate", "failed", "failed"]);
@@ -183,5 +183,29 @@ describe("webinar history", () => {
   test("the route records through the history table", () => {
     const route = readFileSync("app/api/v1/webinars/registrants/route.ts", "utf8");
     expect(route).toContain("recordWebinarRegistration");
+  });
+});
+
+describe("one bad field does not lose the person", () => {
+  test("a refused phone falls back to the email", async () => {
+    let n = 0;
+    reply = () => (++n === 1 ? Response.json({ error: "Input validation failed" }, { status: 422 }) : Response.json({ id: "r" }, { status: 201 }));
+    const out = await addNotifierWebinarRegistrant("k", "abc12345", { name: "Мария", phone: "+359888123456", email: "m@x.co" });
+    expect(out).toEqual({ ok: true, duplicate: false });
+    expect(JSON.parse(String(calls[1].init.body))).toEqual({ name: "Мария", email: "m@x.co" });
+  });
+
+  test("an unreadable phone is dropped, a local number becomes E.164", () => {
+    const bad = readWebinarRegistrant({ email: "a@b.co", phone: "след 18ч" });
+    expect(bad.ok && bad.registrant.phone).toBeNull();
+    const local = readWebinarRegistrant({ phone: "0888 123 456" });
+    expect(local.ok && local.registrant.phone).toBe("+359888123456");
+  });
+
+  test("the error names the field Notifier refused", async () => {
+    const { formatNotifierError } = await import("@/lib/sms/notifier");
+    expect(
+      formatNotifierError({ error: "Input validation failed", details: [{ path: ["phone"], message: "Invalid" }] }, 422),
+    ).toBe("Input validation failed (phone: Invalid)");
   });
 });
