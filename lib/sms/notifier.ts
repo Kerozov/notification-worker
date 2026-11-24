@@ -77,8 +77,25 @@ export function formatNotifierError(payload: unknown, status: number): string {
       }
     }
 
+    // "Input validation failed" alone doesn't say which field — the issues do.
+    const details = (payload as { details?: unknown; issues?: unknown }).details ??
+      (payload as { issues?: unknown }).issues;
+    const detailText = Array.isArray(details)
+      ? (details as NotifierIssue[])
+          .map((issue) =>
+            typeof issue === "string"
+              ? issue
+              : `${issue.path?.join(".") ?? "request"}: ${issue.message ?? "invalid"}`,
+          )
+          .join("; ")
+      : typeof details === "string"
+        ? details
+        : details && typeof details === "object"
+          ? JSON.stringify(details).slice(0, 300)
+          : "";
+
     if (typeof error === "string" && error.trim()) {
-      return error.trim();
+      return detailText ? `${error.trim()} (${detailText})` : error.trim();
     }
 
     const message = (payload as { message?: unknown }).message;
