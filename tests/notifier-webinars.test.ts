@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import type { Tenant } from "@/lib/db/supabase";
 import {
   addNotifierWebinarRegistrant,
@@ -147,5 +148,40 @@ describe("registerForTenantWebinar", () => {
     const res = await post({ email: "a@b.co" });
     expect(res.status).toBe(412);
     expect(calls.length).toBe(0);
+  });
+});
+
+describe("webinar history", () => {
+  test("every attempt leaves a row: added, already there, failed", async () => {
+    const rows: { status: string; webinarId: string; email: string | null; httpStatus: number | null }[] = [];
+    const record = async (row: { status: string; webinarId: string; email: string | null; httpStatus: number | null }) => {
+      rows.push(row);
+    };
+    const t = tenant({ notifier_webinars: true, notifier_webinar_id: "abc12345" });
+
+    await registerForTenantWebinar(t, { email: "a@b.co" }, "nk", record);
+    reply = () => Response.json({ error: "exists" }, { status: 409 });
+    await registerForTenantWebinar(t, { email: "a@b.co" }, "nk", record);
+    reply = () => Response.json({ error: "bad phone" }, { status: 422 });
+    await registerForTenantWebinar(t, { phone: "1" }, "nk", record);
+    await registerForTenantWebinar(t, { email: "c@d.co" }, null, record);
+
+    expect(rows.map((r) => r.status)).toEqual(["added", "duplicate", "failed", "failed"]);
+    expect(rows[2].httpStatus).toBe(422);
+    expect(rows[3].httpStatus).toBe(412);
+    expect(rows.every((r) => r.webinarId === "abc12345")).toBe(true);
+  });
+
+  test("a refused request (no webinar, bad person) writes nothing", async () => {
+    const rows: unknown[] = [];
+    await registerForTenantWebinar(tenant({ notifier_webinars: false }), { email: "a@b.co" }, "nk", async (r) => {
+      rows.push(r);
+    });
+    expect(rows).toEqual([]);
+  });
+
+  test("the route records through the history table", () => {
+    const route = readFileSync("app/api/v1/webinars/registrants/route.ts", "utf8");
+    expect(route).toContain("recordWebinarRegistration");
   });
 });

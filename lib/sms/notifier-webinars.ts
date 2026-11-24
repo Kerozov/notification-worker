@@ -1,5 +1,6 @@
 import type { Tenant } from "@/lib/db/supabase";
 import { formatNotifierError } from "@/lib/sms/notifier";
+import type { WebinarRegistrationRecord } from "@/lib/sms/webinar-history";
 
 /**
  * Webinars live in Notifier: it sends the reminders with the join link and
@@ -145,6 +146,7 @@ export async function registerForTenantWebinar(
   tenant: Tenant,
   body: Record<string, unknown>,
   notifierKey: string | null,
+  record: (row: WebinarRegistrationRecord) => Promise<void> = async () => {},
 ): Promise<RegisterResult> {
   // A page that names its webinar has decided: the client's Notifier subscription
   // is what accepts or refuses it. The switch here only governs the fallback to
@@ -175,7 +177,18 @@ export async function registerForTenantWebinar(
   const person = readWebinarRegistrant(body);
   if (!person.ok) return { status: 400, body: { error: person.error } };
 
+  const history = (status: WebinarRegistrationRecord["status"], httpStatus: number | null, error: string | null) =>
+    record({
+      tenantId: tenant.id,
+      webinarId,
+      ...person.registrant,
+      status,
+      httpStatus,
+      error,
+    });
+
   if (!notifierKey) {
+    await history("failed", 412, "No Notifier API key");
     return {
       status: 412,
       body: { error: `Client "${tenant.slug}" has no Notifier API key` },
@@ -185,6 +198,7 @@ export async function registerForTenantWebinar(
   const outcome = await addNotifierWebinarRegistrant(notifierKey, webinarId, person.registrant);
 
   if (!outcome.ok) {
+    await history("failed", outcome.status, outcome.error);
     console.error(
       `[webinars] registrant not added tenant=${tenant.slug} webinar=${webinarId} status=${outcome.status}: ${outcome.error}`,
     );
@@ -194,5 +208,6 @@ export async function registerForTenantWebinar(
     };
   }
 
+  await history(outcome.duplicate ? "duplicate" : "added", null, null);
   return { status: 200, body: { ok: true, webinarId, duplicate: outcome.duplicate } };
 }

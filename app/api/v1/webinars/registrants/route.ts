@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { resolveSmsTenant, smsTenantErrorResponse } from "@/lib/auth/sms-tenant";
 import { resolveNotifierApiKey } from "@/lib/jobs/process-sms";
 import { registerForTenantWebinar } from "@/lib/sms/notifier-webinars";
+import { recordWebinarRegistration } from "@/lib/sms/webinar-history";
 
 /**
  * One person signed up for a webinar → hand them to Notifier.
@@ -20,6 +21,7 @@ export async function POST(request: NextRequest) {
     resolved.tenant,
     body,
     resolveNotifierApiKey(resolved.tenant),
+    recordWebinarRegistration,
   );
 
   return Response.json(result.body, { status: result.status });
