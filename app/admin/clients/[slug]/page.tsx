@@ -95,6 +95,8 @@ export default async function EditClientPage({
             defaultSmsSender: tenant.default_sms_sender,
             notifierConfigured: Boolean(tenant.notifier_api_key),
             canActForTenants: tenant.can_act_for_tenants === true,
+            notifierWebinars: tenant.notifier_webinars === true,
+            notifierWebinarId: tenant.notifier_webinar_id ?? null,
           }}
         />
       </section>

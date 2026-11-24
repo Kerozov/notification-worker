@@ -225,6 +225,24 @@ Length is counted as the operator counts it (`lib/sms/segments.ts`): GSM-7 160 /
 
 Links are cleaned before they are counted or shortened (`lib/sms/links.ts`): tracking params (`utm_*`, `fbclid`, `gclid`…) are dropped and Cyrillic / `~ [ ] { } | \ ^` are percent-encoded, so a link never turns the text into UCS-2.
 
+### Webinars (Notifier)
+
+Per client, in **Admin → Clients → Settings**: „Webinars through Notifier“ and a
+default webinar. With it on, a signup is handed to Notifier, which sends the
+reminders with the join link and records who joined Zoom.
+
+```http
+POST /api/v1/webinars/registrants
+Authorization: Bearer <client key>        # or the platform key + X-Act-As-Tenant
+{ "webinarId": "xi52mkgrtq3rxz1r9xxkvb65", "name": "…", "phone": "+359…", "email": "…" }
+```
+
+Every webinar has its own id, so the page names it; without `webinarId` the
+client's default is used. A join link (`/join/<code>`) is not an id and is
+refused. Off for the client → 409; no Notifier key → 412; already registered at
+Notifier → `{ ok: true, duplicate: true }`. `GET /api/v1/webinars/config` says
+whether the method is on and which webinar is the default.
+
 ### Internal process (Trigger.dev only)
 
 When a scheduled job fires, Trigger.dev calls:

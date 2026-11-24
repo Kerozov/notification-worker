@@ -94,6 +94,12 @@ export async function updateClientAction(formData: FormData): Promise<void> {
       canActForTenants: formData.has("canActForTenantsField")
         ? formData.get("canActForTenants") === "on"
         : undefined,
+      notifierWebinars: formData.has("notifierWebinarsField")
+        ? formData.get("notifierWebinars") === "on"
+        : undefined,
+      notifierWebinarId: formData.has("notifierWebinarsField")
+        ? String(formData.get("notifierWebinarId") ?? "")
+        : undefined,
     });
   } catch (error) {
     errorMessage =

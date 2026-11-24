@@ -2,6 +2,7 @@ import { randomBytes } from "crypto";
 import { hashApiKey } from "@/lib/auth/tenant";
 import { asTenant, getSupabaseAdmin, Tenant } from "@/lib/db/supabase";
 import { clearTenantCache } from "@/lib/tenants/cache";
+import { parseNotifierWebinarId } from "@/lib/sms/notifier-webinars";
 
 export type TenantAdminRow = {
   id: string;
@@ -33,6 +34,10 @@ export type UpdateTenantInput = {
   clearNotifierKey?: boolean;
   /** Left out keeps what is stored. */
   canActForTenants?: boolean;
+  /** Left out keeps what is stored. */
+  notifierWebinars?: boolean;
+  /** Left out keeps what is stored; "" clears. A join link is refused. */
+  notifierWebinarId?: string;
 };
 
 const SLUG_REGEX = /^[a-z0-9](?:[a-z0-9-]{0,46}[a-z0-9])?$/;
@@ -189,6 +194,21 @@ export async function updateTenant(
     patch.can_act_for_tenants = input.canActForTenants;
   }
 
+  if (input.notifierWebinarId !== undefined) {
+    const raw = input.notifierWebinarId.trim();
+    const id = parseNotifierWebinarId(raw);
+    if (raw && !id) {
+      throw new Error(
+        "Webinar id: paste the id or the registrants URL from Notifier → Add leads → API (the join link is not the id)",
+      );
+    }
+    patch.notifier_webinar_id = id;
+  }
+
+  if (input.notifierWebinars !== undefined) {
+    patch.notifier_webinars = input.notifierWebinars;
+  }
+
   if (input.clearNotifierKey) {
     patch.notifier_api_key = null;
   } else if (input.notifierApiKey?.trim()) {
@@ -205,6 +225,11 @@ export async function updateTenant(
     .maybeSingle();
 
   if (error) {
+    if (error.code === "42703" && error.message.includes("notifier_webinar")) {
+      throw new Error(
+        "Webinar settings need migration 020_tenant_notifier_webinars — not applied yet",
+      );
+    }
     throw new Error(error.message);
   }
 
@@ -230,6 +255,11 @@ export async function rotateTenantApiKey(
     .maybeSingle();
 
   if (error) {
+    if (error.code === "42703" && error.message.includes("notifier_webinar")) {
+      throw new Error(
+        "Webinar settings need migration 020_tenant_notifier_webinars — not applied yet",
+      );
+    }
     throw new Error(error.message);
   }
 
