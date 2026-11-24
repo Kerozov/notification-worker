@@ -177,8 +177,8 @@ export function ClientForm({
                   name="notifierWebinars"
                   defaultChecked={Boolean(defaults?.notifierWebinars)}
                 />
-                Webinars through Notifier: signups go to Notifier, which sends
-                the reminders and tracks who joined Zoom
+                Webinars through Notifier: signups without a named webinar go to
+                the default below. A page that names its webinar works without this
               </span>
             </label>
             <label className={`${styles.formField} ${styles.formFieldWide}`}>

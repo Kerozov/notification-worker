@@ -146,14 +146,17 @@ export async function registerForTenantWebinar(
   body: Record<string, unknown>,
   notifierKey: string | null,
 ): Promise<RegisterResult> {
-  if (tenant.notifier_webinars !== true) {
+  // A page that names its webinar has decided: the client's Notifier subscription
+  // is what accepts or refuses it. The switch here only governs the fallback to
+  // the client's default webinar.
+  const named = typeof body.webinarId === "string" ? body.webinarId.trim() : "";
+  if (!named && tenant.notifier_webinars !== true) {
     return {
       status: 409,
       body: { error: `Notifier webinars are off for client "${tenant.slug}"` },
     };
   }
 
-  const named = typeof body.webinarId === "string" ? body.webinarId.trim() : "";
   const webinarId = named
     ? parseNotifierWebinarId(named)
     : parseNotifierWebinarId(tenant.notifier_webinar_id);
