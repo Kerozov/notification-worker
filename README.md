@@ -73,6 +73,12 @@ bun run dev
 The worker correlates webhook events to recipients via `client_reference` (the job id)
 plus the recipient address — no per-recipient provider id needed.
 
+**One-click unsubscribe (RFC 8058).** When a recipient's `merge` has an https `unsubscribe_url`, the email carries
+`List-Unsubscribe: <that url>` and `List-Unsubscribe-Post: List-Unsubscribe=One-Click`, so Gmail and Yahoo show their own
+"Unsubscribe" button and POST to that URL. ZeptoMail's batch API takes `mime_headers` once per request and does not fill
+merge tags inside headers, so each such recipient goes in a ZeptoMail request of their own; recipients without the link are
+still batched by 50. `EMAIL_LIST_UNSUBSCRIBE=off` turns the headers off and batches everyone again.
+
 ## API
 
 All tenant endpoints require:
@@ -84,6 +90,11 @@ Content-Type: application/json
 
 - `recipients` — array of addresses, max 50,000. The worker stores the full list on a **campaign** job (the admin view), then splits it into send jobs of 250. Do not fan out one job per person. Automations stay one job per person.
 - `merge` — optional map of email → `{ key: value }` used as ZeptoMail merge fields (`{{name}}`, `{{unsubscribe_url}}`, …)
+  - `merge["<email>"].unsubscribe_url` (https) is also the one way to give the worker a recipient's unsubscribe link for the
+    one-click `List-Unsubscribe` headers. Same key on `/api/v1/send`, `/api/v1/schedule` and each item of `/api/v1/jobs/batch`,
+    for campaigns and one-person jobs alike, even when the HTML has the link written in and never uses `{{unsubscribe_url}}`.
+    No key, no headers (admin notifications, login codes). Example:
+    `"merge": { "ana@x.com": { "unsubscribe_url": "https://site/api/unsubscribe?token=…&locale=bg" } }`
 
 - `from` — sender address from the calling app, e.g. `hello@yourdomain.com` or `Brand Name <hello@yourdomain.com>` (must be a ZeptoMail-verified domain)
 - If omitted, worker uses tenant `default_from` from the database (set via seed env)

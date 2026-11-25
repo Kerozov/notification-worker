@@ -15,7 +15,7 @@ export type SendBatchInput = {
   clientReference: string;
   attachments?: EmailAttachment[];
   merge?: Record<string, Record<string, string>>;
-  /** Called after each ZeptoMail request of 50 so a crash cannot resend those people. */
+  /** Called after each ZeptoMail request (up to 50 people) so a crash cannot resend those people. */
   onChunk?: (deliveries: DeliverySendResult[]) => Promise<void>;
 };
 
@@ -57,6 +57,80 @@ export function parseAddress(value: string): ParsedAddress {
   return { name: "", address: trimmed };
 }
 
+export type UnsubscribeHeaders = {
+  "List-Unsubscribe": string;
+  "List-Unsubscribe-Post": "List-Unsubscribe=One-Click";
+};
+
+/**
+ * RFC 8058 one-click headers for a recipient's own `unsubscribe_url`, so
+ * Gmail and Yahoo show their "Unsubscribe" next to the sender and POST
+ * `List-Unsubscribe=One-Click` to that URL. One-click needs https; anything
+ * else, or a value that could break the header line, gets no headers.
+ */
+export function listUnsubscribeHeaders(
+  unsubscribeUrl: string | undefined,
+): UnsubscribeHeaders | null {
+  const value = unsubscribeUrl?.trim();
+  if (!value || /[\s<>"]/.test(value)) return null;
+
+  try {
+    if (new URL(value).protocol !== "https:") return null;
+  } catch {
+    return null;
+  }
+
+  return {
+    "List-Unsubscribe": `<${value}>`,
+    "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+  };
+}
+
+/** `EMAIL_LIST_UNSUBSCRIBE=off` sends without the headers, batched as before. */
+function unsubscribeHeadersEnabled(): boolean {
+  return process.env.EMAIL_LIST_UNSUBSCRIBE?.trim().toLowerCase() !== "off";
+}
+
+export type ZeptoRequestPlan = {
+  recipients: string[];
+  headers?: UnsubscribeHeaders;
+};
+
+/**
+ * Which recipients share one ZeptoMail request. The batch API takes
+ * `mime_headers` once per request, for everyone in it, and does not fill merge
+ * tags inside headers. So a recipient with their own unsubscribe link goes in
+ * a request of their own; everyone else is batched by 50 as before.
+ */
+export function planZeptoRequests(
+  recipients: string[],
+  merge: SendBatchInput["merge"],
+  withUnsubscribeHeaders = true,
+): ZeptoRequestPlan[] {
+  const plans: ZeptoRequestPlan[] = [];
+  let batch: string[] = [];
+
+  for (const recipient of recipients) {
+    const headers = withUnsubscribeHeaders
+      ? listUnsubscribeHeaders(merge?.[recipient]?.unsubscribe_url)
+      : null;
+
+    if (headers) {
+      plans.push({ recipients: [recipient], headers });
+      continue;
+    }
+
+    batch.push(recipient);
+    if (batch.length === BATCH_SIZE) {
+      plans.push({ recipients: batch });
+      batch = [];
+    }
+  }
+
+  if (batch.length > 0) plans.push({ recipients: batch });
+  return plans;
+}
+
 export async function sendEmailBatch(
   input: SendBatchInput,
 ): Promise<SendBatchResult> {
@@ -67,14 +141,19 @@ export async function sendEmailBatch(
   const replyTo = input.replyTo ? parseAddress(input.replyTo) : null;
   const attachments = await loadZeptoAttachments(input.attachments);
   const recipients = uniqueEmails(input.recipients);
+  const plans = planZeptoRequests(
+    recipients,
+    input.merge,
+    unsubscribeHeadersEnabled(),
+  );
 
   const errors: string[] = [];
   const deliveries: DeliverySendResult[] = [];
   let sent = 0;
   let failed = 0;
 
-  for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
-    const chunk = recipients.slice(i, i + BATCH_SIZE);
+  for (const plan of plans) {
+    const chunk = plan.recipients;
 
     const body = {
       from: { address: from.address, name: from.name },
@@ -98,6 +177,7 @@ export async function sendEmailBatch(
       track_opens: true,
       track_clicks: true,
       client_reference: input.clientReference,
+      ...(plan.headers ? { mime_headers: plan.headers } : {}),
       ...(attachments.length > 0 ? { attachments } : {}),
     };
 
