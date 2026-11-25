@@ -1,3 +1,4 @@
+import { notifyDeliveryEvents, type DeliveryEvent } from "@/lib/events/hook";
 import { NextRequest } from "next/server";
 import { isBotOpenUserAgent } from "@/lib/deliveries/open-filter";
 import {
@@ -190,6 +191,8 @@ export async function POST(request: NextRequest) {
   let requeued = 0;
   /** Send job id → earliest time one of its addresses is due again. */
   const retries = new Map<string, Date>();
+  /** What changed here, to pass on to the client that sent the mail. */
+  const events: DeliveryEvent[] = [];
 
   try {
     for (const message of messages) {
@@ -220,6 +223,7 @@ export async function POST(request: NextRequest) {
 
           const marked = await markDeliveryOpened(jobId, recipient, eventTime);
           if (marked) {
+            events.push({ type: "opened", jobId, email: recipient, at: eventTime });
             updated += 1;
           } else {
             notFound += 1;
@@ -232,6 +236,13 @@ export async function POST(request: NextRequest) {
             detail?.clicked_link,
           );
           if (marked) {
+            events.push({
+              type: "clicked",
+              jobId,
+              email: recipient,
+              at: eventTime,
+              ...(detail?.clicked_link ? { url: detail.clicked_link } : {}),
+            });
             updated += 1;
           } else {
             notFound += 1;
@@ -243,6 +254,7 @@ export async function POST(request: NextRequest) {
             eventTime,
           );
           if (marked) {
+            events.push({ type: "complained", jobId, email: recipient, at: eventTime });
             updated += 1;
           } else {
             notFound += 1;
@@ -262,12 +274,23 @@ export async function POST(request: NextRequest) {
               retries.set(jobId, result.retryAt);
             }
           }
+          // A requeued address is waiting for its second try, not bounced.
+          if (result.outcome === "bounced" && bounceType === "hard") {
+            events.push({
+              type: "bounced",
+              jobId,
+              email: recipient,
+              at: eventTime,
+              error: bounceMessage(detail),
+            });
+          }
           if (result.outcome !== "ignored") {
             updated += 1;
             if (bounceType === "soft") softBounced += 1;
           }
         } else if (kind === "delivered") {
           await markDeliveryDelivered(jobId, recipient, eventTime);
+          events.push({ type: "delivered", jobId, email: recipient, at: eventTime });
           updated += 1;
         }
       }
@@ -276,6 +299,8 @@ export async function POST(request: NextRequest) {
     for (const [jobId, at] of retries) {
       await scheduleRetry(jobId, at);
     }
+
+    await notifyDeliveryEvents(events);
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Webhook handler failed";
