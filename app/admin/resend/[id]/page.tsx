@@ -92,7 +92,7 @@ export default async function ResendPage({
   );
   const complainedDeliveries = deliveries.filter((d) => d.complained_at);
 
-  const flashError = query.error ? decodeURIComponent(query.error) : null;
+  const flashError = query.error || null;
   const success = query.ok === "1";
   const segment = isRecipientSegment(query.segment) ? query.segment : null;
   const segmentRecipients = segment

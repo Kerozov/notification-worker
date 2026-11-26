@@ -127,7 +127,7 @@ export default async function AdminPage({
   const params = await searchParams;
   const channel = parseChannel(params.channel);
   const jobFilters = parseJobListFilters(params);
-  const flashError = params.error ? decodeURIComponent(params.error) : null;
+  const flashError = params.error || null;
   const canceled = params.canceled;
   const bulkCanceled = params.bulkCanceled;
   const sent = params.sent;

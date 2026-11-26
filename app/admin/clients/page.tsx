@@ -17,7 +17,7 @@ export default async function ClientsPage({
   }
 
   const params = await searchParams;
-  const flashError = params.error ? decodeURIComponent(params.error) : null;
+  const flashError = params.error || null;
   const saved = params.saved === "1";
   const [tenants, chrome] = await Promise.all([
     listTenantsForAdmin(),

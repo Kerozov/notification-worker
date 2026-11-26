@@ -138,7 +138,7 @@ export function CampaignReportView({
   const hrefFor = makeHrefFor(job.id, view, defaultSortFor);
   const currentHref = hrefFor({});
 
-  const flashError = query.error ? decodeURIComponent(query.error) : null;
+  const flashError = query.error || null;
   const failedCount = deliveries.filter(
     (row) => (row.status === "failed" || row.status === "bounced") && !row.complained_at,
   ).length;

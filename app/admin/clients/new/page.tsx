@@ -15,7 +15,7 @@ export default async function NewClientPage({
   }
 
   const params = await searchParams;
-  const flashError = params.error ? decodeURIComponent(params.error) : null;
+  const flashError = params.error || null;
   const chrome = await getAdminChrome();
 
   return (

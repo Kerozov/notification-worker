@@ -40,7 +40,7 @@ export default async function EditClientPage({
     notFound();
   }
 
-  const flashError = query.error ? decodeURIComponent(query.error) : null;
+  const flashError = query.error || null;
   const saved = query.saved === "1";
   const revealedApiKey =
     query.reveal === "1" ? await peekRevealedApiKey() : null;
