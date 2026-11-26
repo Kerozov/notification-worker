@@ -49,6 +49,11 @@ describe("buildEmailSearchOr", () => {
     expect(or).toContain('idempotency_key.ilike."%Ivan@Example.COM%"');
   });
 
+  test("finds a one-person job by part of the address", () => {
+    const or = buildEmailSearchOr("dgateva");
+    expect(or).toContain('recipients->>0.ilike."%dgateva%"');
+  });
+
   test("finds a job by uuid, including campaign children", () => {
     const id = "2c1a0b6e-9d34-4f1a-8c2b-7a91e0d44c11";
     const or = buildEmailSearchOr(id);

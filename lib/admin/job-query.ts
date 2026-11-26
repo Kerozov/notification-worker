@@ -93,6 +93,10 @@ export function buildEmailSearchOr(term: string): string {
     ilikeClause("error", trimmed),
     ilikeClause("from_email", trimmed),
     ilikeClause("idempotency_key", trimmed),
+    // Part of an address ("ivan", "abv.bg"): a one-person job - an automation
+    // step, a transactional email - is found by its only recipient. The exact
+    // match below still covers a full address anywhere in a longer list.
+    ilikeClause("recipients->>0", trimmed),
   ];
 
   if (UUID_RE.test(trimmed)) {
